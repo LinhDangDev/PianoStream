@@ -94,6 +94,11 @@ class QueueReorderResumeE2eTest {
 
         // Remove row 0 through the queue UI → must mirror into queue_items
         // (the B9 durable-queue contract this E2E exists to prove).
+        // Aurora UI: tap the dock to morph into the expanded player, then
+        // open the queue sheet.
+        compose.onNodeWithContentDescription("Open player", substring = true)
+            .performClick()
+        compose.waitForIdle()
         compose.onNodeWithContentDescription("Open play queue").performClick()
         compose.waitForIdle()
         compose.onAllNodesWithContentDescription("Remove from queue")

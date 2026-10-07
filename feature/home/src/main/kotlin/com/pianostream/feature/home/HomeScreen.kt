@@ -14,12 +14,18 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,6 +38,7 @@ import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.designsystem.component.PlaybackErrorState
 import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
+import com.pianostream.core.designsystem.theme.Aurora
 
 /**
  * Home — recently played, disc grid, composer chips, "From YouTube" row.
@@ -42,6 +49,7 @@ fun HomeScreen(
     /** Play a queue: rows + start position (C6 — app layer owns the player). */
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenSettings: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -50,6 +58,29 @@ fun HomeScreen(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
+        item {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "PianoStream",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Aurora.TextPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = "Open settings",
+                        tint = Aurora.TextSecondary,
+                    )
+                }
+            }
+        }
         if (state.recentlyPlayed.isNotEmpty()) {
             item { SectionHeader("Recently played") }
             items(state.recentlyPlayed, key = { it.id }) { item ->

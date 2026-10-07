@@ -5,13 +5,17 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.data.settings.SettingsDataStore
+import com.pianostream.core.data.settings.SettingsDataStore.ThemeMode
 import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.media.queue.QueueAssembler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -31,10 +35,17 @@ public class AppViewModel @Inject constructor(
     private val controller: PlaybackController,
     private val playbackRepository: PlaybackRepository,
     private val assembler: QueueAssembler,
+    settings: SettingsDataStore,
 ) : ViewModel() {
 
     private val _player = MutableStateFlow<Player?>(null)
     public val player: StateFlow<Player?> = _player.asStateFlow()
+
+    /** Theme prefs (frozen keys) — read by MainActivity to theme the app. */
+    public val themeMode: StateFlow<ThemeMode> =
+        settings.themeMode.stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
+    public val dynamicColor: StateFlow<Boolean> =
+        settings.dynamicColor.stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     public fun connectIfNeeded() {
         if (_player.value != null) return

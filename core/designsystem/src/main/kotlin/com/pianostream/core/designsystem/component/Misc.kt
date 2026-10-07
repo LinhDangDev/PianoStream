@@ -19,13 +19,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pianostream.core.designsystem.theme.Aurora
 
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier) {
     Text(
         title,
         style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = Aurora.TextPrimary,
         modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
 }
@@ -39,12 +43,16 @@ fun EmptyState(title: String, body: String?, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            color = Aurora.TextPrimary,
+        )
         if (body != null) {
             Text(
                 body,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Aurora.TextSecondary,
             )
         }
     }
@@ -62,10 +70,7 @@ fun LoadingShimmer(rows: Int = 5, modifier: Modifier = Modifier) {
                 Box(
                     Modifier
                         .size(48.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            MaterialTheme.shapes.small,
-                        ),
+                        .background(Aurora.SurfaceLight, MaterialTheme.shapes.small),
                 )
                 Column(
                     Modifier.fillMaxWidth(),
@@ -75,19 +80,13 @@ fun LoadingShimmer(rows: Int = 5, modifier: Modifier = Modifier) {
                         Modifier
                             .fillMaxWidth(0.6f)
                             .height(14.dp)
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant,
-                                MaterialTheme.shapes.small,
-                            ),
+                            .background(Aurora.SurfaceLight, MaterialTheme.shapes.small),
                     )
                     Box(
                         Modifier
                             .fillMaxWidth(0.35f)
                             .height(10.dp)
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant,
-                                MaterialTheme.shapes.small,
-                            ),
+                            .background(Aurora.SurfaceLight, MaterialTheme.shapes.small),
                     )
                 }
             }
@@ -97,7 +96,7 @@ fun LoadingShimmer(rows: Int = 5, modifier: Modifier = Modifier) {
 
 /**
  * Now-playing backdrop: a vertical gradient from the artwork's dominant
- * color into the surface behind the screen content.
+ * color into the Aurora canvas behind the screen content.
  */
 @Composable
 fun GradientFromArtwork(
@@ -105,14 +104,13 @@ fun GradientFromArtwork(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val base = MaterialTheme.colorScheme.surface
-    val top = topColor ?: MaterialTheme.colorScheme.surfaceVariant
+    val top = topColor ?: Aurora.Surface
     Box(
         modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(top.copy(alpha = 0.55f), base),
+                    listOf(top.copy(alpha = 0.55f), Aurora.Bg),
                 ),
             ),
     ) {
@@ -124,14 +122,20 @@ fun GradientFromArtwork(
 @Composable
 fun ScanProgressRow(label: String, progress: Float?, modifier: Modifier = Modifier) {
     Column(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = Aurora.TextPrimary)
         if (progress != null) {
             LinearProgressIndicator(
                 progress = { progress.coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth(),
+                color = Aurora.Accent,
+                trackColor = Aurora.SurfaceLight,
             )
         } else {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(),
+                color = Aurora.Accent,
+                trackColor = Aurora.SurfaceLight,
+            )
         }
     }
 }

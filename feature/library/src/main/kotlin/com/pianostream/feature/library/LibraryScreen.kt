@@ -33,6 +33,8 @@ import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.designsystem.component.TrackRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import com.pianostream.core.designsystem.theme.Aurora
 
 /**
  * Library — tabs Discs / Tracks / Composers / Playlists / Favorites (C5),
@@ -103,11 +105,26 @@ fun LibraryScreen(
                     }
                 }
             }
-            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
+            ScrollableTabRow(
+                selectedTabIndex = tab,
+                edgePadding = 8.dp,
+                containerColor = Aurora.Bg,
+                contentColor = Aurora.TextSecondary,
+                indicator = { positions ->
+                    if (tab < positions.size) {
+                        androidx.compose.material3.TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(positions[tab]),
+                            color = Aurora.Accent,
+                        )
+                    }
+                },
+            ) {
                 tabs.forEachIndexed { i, label ->
                     Tab(
                         selected = tab == i,
                         onClick = { tab = i },
+                        selectedContentColor = Aurora.TextPrimary,
+                        unselectedContentColor = Aurora.TextSecondary,
                         text = { Text(label) },
                     )
                 }

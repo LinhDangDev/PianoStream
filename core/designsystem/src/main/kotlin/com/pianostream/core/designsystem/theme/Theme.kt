@@ -12,52 +12,52 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 /**
- * PianoStream Material 3 theme — `dynamicLight/DarkColorScheme` on API 31+,
- * curated fallback palette below otherwise. Dark is the product default
- * (listening app) but the palette is kept in both directions for the
- * `themeMode` setting.
+ * PianoStream theme — Aurora design language. The curated palettes below are
+ * mapped from the Aurora tokens (pure-black canvas, glass surfaces, violet
+ * accent). `dynamicColor` still wins when the frozen setting is on (Material
+ * You); turn it off in Settings for the full Aurora look.
  */
 
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFF8AB4F8),
-    onPrimary = Color(0xFF0B3057),
-    primaryContainer = Color(0xFF284777),
-    onPrimaryContainer = Color(0xFFD7E3FF),
-    secondary = Color(0xFFBBC7DB),
-    onSecondary = Color(0xFF253140),
-    secondaryContainer = Color(0xFF3B4858),
-    onSecondaryContainer = Color(0xFFD7E3F8),
-    tertiary = Color(0xFFD8BDE2),
-    onTertiary = Color(0xFF3B2948),
-    background = Color(0xFF111318),
-    onBackground = Color(0xFFE2E2E9),
-    surface = Color(0xFF111318),
-    onSurface = Color(0xFFE2E2E9),
-    surfaceVariant = Color(0xFF44474E),
-    onSurfaceVariant = Color(0xFFC4C6D0),
-    error = Color(0xFFF2B8B5),
+private val AuroraDark = darkColorScheme(
+    primary = Color(0xFFB9A6F5),
+    onPrimary = Color(0xFF241A3D),
+    primaryContainer = Color(0xFF3A2F5C),
+    onPrimaryContainer = Color(0xFFE4DBFF),
+    secondary = Color(0xFF98989F),
+    onSecondary = Color(0xFF1C1C1E),
+    secondaryContainer = Color(0xFF2C2C2E),
+    onSecondaryContainer = Color(0xFFE4E1E9),
+    tertiary = Color(0xFF9C86E8),
+    onTertiary = Color(0xFF241A3D),
+    background = Color(0xFF000000),
+    onBackground = Color(0xFFF5F5F7),
+    surface = Color(0xFF000000),
+    onSurface = Color(0xFFF5F5F7),
+    surfaceVariant = Color(0xFF2C2C2E),
+    onSurfaceVariant = Color(0xFF98989F),
+    error = Color(0xFFFF6961),
     onError = Color(0xFF601410),
     errorContainer = Color(0xFF8C1D18),
     onErrorContainer = Color(0xFFF9DEDC),
 )
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF445E91),
+private val AuroraLight = lightColorScheme(
+    primary = Color(0xFF5E4BA8),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD7E3FF),
-    onPrimaryContainer = Color(0xFF001B3F),
-    secondary = Color(0xFF565E71),
+    primaryContainer = Color(0xFFE4DBFF),
+    onPrimaryContainer = Color(0xFF1A1052),
+    secondary = Color(0xFF5F5E66),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFDAE2F9),
-    onSecondaryContainer = Color(0xFF131C2B),
-    tertiary = Color(0xFF705575),
+    secondaryContainer = Color(0xFFE4E1E9),
+    onSecondaryContainer = Color(0xFF1C1B1F),
+    tertiary = Color(0xFF7158CC),
     onTertiary = Color(0xFFFFFFFF),
-    background = Color(0xFFF9F9FF),
-    onBackground = Color(0xFF1A1B20),
-    surface = Color(0xFFF9F9FF),
-    onSurface = Color(0xFF1A1B20),
-    surfaceVariant = Color(0xFFE0E2EC),
-    onSurfaceVariant = Color(0xFF44474E),
+    background = Color(0xFFFDFCFF),
+    onBackground = Color(0xFF1B1B20),
+    surface = Color(0xFFFDFCFF),
+    onSurface = Color(0xFF1B1B20),
+    surfaceVariant = Color(0xFFE6E1EC),
+    onSurfaceVariant = Color(0xFF49454F),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
@@ -76,8 +76,8 @@ fun PianoStreamTheme(
             if (darkTheme) dynamicDarkColorScheme(context)
             else dynamicLightColorScheme(context)
 
-        darkTheme -> DarkColors
-        else -> LightColors
+        darkTheme -> AuroraDark
+        else -> AuroraLight
     }
     MaterialTheme(
         colorScheme = scheme,
