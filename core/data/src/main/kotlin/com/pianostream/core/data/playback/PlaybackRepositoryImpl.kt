@@ -16,11 +16,20 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+/**
+ * Seam for `clearStreamCache()` — core:data cannot see `MediaCache`
+ * (dependency direction); a concrete fun interface avoids the
+ * wildcard-mismatch problems of raw `suspend () -> Unit` injection.
+ */
+public fun interface StreamCacheEvictor {
+    public suspend fun evict()
+}
+
 /** [PlaybackRepository] backed by Room `playback.db` (Phase 2). */
 @Singleton
 class PlaybackRepositoryImpl @Inject constructor(
     private val db: PlaybackDatabase,
-    private val streamCacheEvictor: suspend () -> Unit = {},
+    private val streamCacheEvictor: StreamCacheEvictor = StreamCacheEvictor {},
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) : PlaybackRepository {
 
@@ -127,7 +136,7 @@ class PlaybackRepositoryImpl @Inject constructor(
         maintenanceDao.reconcile(existingMediaIds.toList())
     }
 
-    override suspend fun clearStreamCache() = streamCacheEvictor()
+    override suspend fun clearStreamCache() = streamCacheEvictor.evict()
 
     override suspend fun clearAll() {
         queueDao.deleteAllItems()

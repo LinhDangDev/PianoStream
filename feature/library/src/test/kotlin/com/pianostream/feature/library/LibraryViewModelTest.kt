@@ -1,0 +1,212 @@
+package com.pianostream.feature.library
+
+import com.google.common.truth.Truth.assertThat
+import com.pianostream.core.data.library.LibraryRepository
+import com.pianostream.core.data.library.model.Disc
+import com.pianostream.core.data.library.model.ScanProgress
+import com.pianostream.core.data.library.model.ScanResult
+import com.pianostream.core.data.library.model.SearchHit
+import com.pianostream.core.data.library.model.Track
+import com.pianostream.core.data.playback.PlaybackRepository
+import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.MediaSource
+import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.data.playback.model.QueueState
+import com.pianostream.core.data.settings.SettingsDataStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+class LibraryViewModelTest {
+
+    private class FakeLibraryRepo : LibraryRepository {
+        val discsFlow = MutableStateFlow<List<Disc>>(emptyList())
+        val tracksFlow = MutableStateFlow<Map<Long, List<Track>>>(emptyMap())
+        val progressFlow = MutableStateFlow(ScanProgress(0, null))
+        var nextScan: ScanResult = ScanResult(0, 0, 10, 0)
+        var scanCalls = 0
+        var clearCalls = 0
+        val progressHistory = mutableListOf<ScanProgress>()
+
+        override val discs: Flow<List<Disc>> = discsFlow
+        override fun observeTracks(discId: Long): Flow<List<Track>> =
+            kotlinx.coroutines.flow.flow { tracksFlow.collect { emit(it[discId].orEmpty()) } }
+        override suspend fun discById(id: Long): Disc? = discsFlow.value.find { it.id == id }
+        override suspend fun tracksOf(discId: Long): List<Track> = tracksFlow.value[discId].orEmpty()
+        override fun search(query: String): Flow<List<SearchHit>> = flowOf(emptyList())
+        override suspend fun distinctComposers(): List<String> =
+            tracksFlow.value.values.flatten().mapNotNull { it.composer }.distinct().sorted()
+        override val scanProgress: Flow<ScanProgress> = progressFlow
+        override suspend fun startScan(): ScanResult {
+            scanCalls++
+            repeat(3) { i ->
+                ScanProgress(i + 1, "folder$i").also {
+                    progressHistory.add(it); progressFlow.value = it
+                }
+            }
+            // Terminal marker: folder null ⇒ scan finished (driver emits
+            // the same shape; the collector maps it to scanning=false).
+            progressFlow.value = ScanProgress(nextScan.discCount, null)
+            return nextScan
+        }
+        override suspend fun revokeLibraryAccess() {}
+        override suspend fun clearAll() { clearCalls++; discsFlow.value = emptyList(); tracksFlow.value = emptyMap() }
+    }
+
+    private class FakePlaybackRepo : PlaybackRepository {
+        val favs = MutableStateFlow<List<FavoriteItem>>(emptyList())
+        override fun observeQueue(): Flow<List<QueueItem>> = flowOf(emptyList())
+        override fun observeQueueState(): Flow<QueueState?> = flowOf(null)
+        override suspend fun replaceQueue(items: List<QueueItem>, state: QueueState?) {}
+        override suspend fun moveQueueItem(fromPosition: Int, toPosition: Int) {}
+        override suspend fun saveQueueCursor(state: QueueState) {}
+        override fun observeHistory(): Flow<List<PlayHistoryItem>> = flowOf(emptyList())
+        override suspend fun appendHistory(item: PlayHistoryItem) {}
+        override fun observeFavorites(): Flow<List<FavoriteItem>> = favs
+        override suspend fun addFavorite(item: FavoriteItem) {}
+        override suspend fun removeFavorite(mediaId: String) {}
+        override suspend fun isFavorite(mediaId: String): Boolean = false
+        override suspend fun reconcileMissing(existingMediaIds: Set<String>) {}
+        override suspend fun clearStreamCache() {}
+        override suspend fun clearAll() {}
+    }
+
+    private lateinit var settings: SettingsDataStore
+    private lateinit var library: FakeLibraryRepo
+    private lateinit var playback: FakePlaybackRepo
+    private var mainDispatcher: kotlinx.coroutines.test.TestDispatcher? = null
+
+    @Before
+    fun setUp() {
+        settings = SettingsDataStore.default(RuntimeEnvironment.getApplication())
+        kotlinx.coroutines.runBlocking { settings.clear() }
+        library = FakeLibraryRepo()
+        playback = FakePlaybackRepo()
+    }
+
+    @After
+    fun tearDown() {
+        // No resetMain — suspended collectors make reset throw.
+    }
+
+    private fun TestScope.vm(): LibraryViewModel {
+        mainDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(mainDispatcher!!)
+        val vm = LibraryViewModel(library, playback, settings)
+        advanceUntilIdle()
+        return vm
+    }
+
+    private fun disc(i: Int) = Disc(
+        id = i.toLong(), docId = "d$i", treeUri = "t", folderPath = "f$i",
+        title = "Disc $i", performer = "p", composer = "c$i", genre = null,
+        date = null, discId = null, discNumber = null, totalDiscs = null,
+        cueUri = null, flacUri = "u$i", logUri = null, artworkUri = null,
+        albumGainDb = null, albumPeak = null, flacDurationMs = null,
+        flacSizeBytes = 0, flacLastModified = null, scannedAt = 0L,
+    )
+
+    private fun track(id: Long, discId: Long, no: Int) = Track(
+        id = id, discId = discId, trackNo = no, title = "T$no",
+        performer = "p", composer = "c", startMs = 0, endMs = 1000,
+        pregapStartMs = null, gainDb = null, peak = null, isrc = null, flags = 0,
+    )
+
+    @Test
+    fun `no library root yields empty state`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        assertThat(vm.state.value.hasRoot).isFalse()
+        assertThat(vm.state.value.discs).isEmpty()
+    }
+
+    @Test
+    fun `grant persists root and starts scan`() = runTest {
+        val vm = vm()
+        vm.onTreePicked(
+            LibraryViewModel.PickerResult.Granted(
+                "content://com.android.externalstorage.documents/tree/primary%3AMusic",
+            ),
+        )
+        advanceUntilIdle()
+        assertThat(settings.libraryRootTreeUri.first()).contains("externalstorage")
+        assertThat(library.scanCalls).isGreaterThan(0)
+    }
+
+    @Test
+    fun `scan progress is monotonic`() = runTest {
+        val vm = vm()
+        vm.rescan()
+        advanceUntilIdle()
+        // The driver emitted a strictly increasing count then a null-folder
+        // completion marker (which the VM maps to scanning=false).
+        val counts = library.progressHistory.map { it.discsScanned }
+        assertThat(counts).isEqualTo(counts.sorted())
+        assertThat(counts.last()).isAtLeast(3)
+        assertThat(vm.state.value.scanning).isFalse()
+    }
+
+    @Test
+    fun `100 disc 1669 track scan reports summary`() = runTest {
+        val vm = vm()
+        library.nextScan = ScanResult(100, 1669, 28_500, 0)
+        vm.rescan()
+        advanceUntilIdle()
+        val last = vm.state.value.lastScan
+        assertThat(last).isNotNull()
+        assertThat(last!!.newDiscs).isEqualTo(100)
+        assertThat(last.tracks).isEqualTo(1669)
+        assertThat(vm.state.value.scanning).isFalse()
+    }
+
+    @Test
+    fun `shrinking scan requires explicit confirm before clearing (M2)`() = runTest {
+        val vm = vm()
+        library.discsFlow.value = (1..3).map { disc(it) }
+        advanceUntilIdle()
+        library.nextScan = ScanResult(1, 10, 10, 2)
+        vm.rescan()
+        advanceUntilIdle()
+        // Shrink detected → pending confirm; nothing cleared yet.
+        assertThat(vm.state.value.pendingShrink).isNotNull()
+        assertThat(library.clearCalls).isEqualTo(0)
+        vm.confirmShrink()
+        advanceUntilIdle()
+        assertThat(library.clearCalls).isEqualTo(1)
+    }
+
+    @Test
+    fun `missing favourites produce the tombstone banner count (B1)`() = runTest {
+        playback.favs.value = listOf(
+            FavoriteItem("m1", "a", null, null, MediaSource.LOCAL, 0, missing = true),
+            FavoriteItem("m2", "b", null, null, MediaSource.LOCAL, 0, missing = true),
+            FavoriteItem("m3", "c", null, null, MediaSource.LOCAL, 0, missing = true),
+            FavoriteItem("m4", "d", null, null, MediaSource.LOCAL, 0, missing = false),
+        )
+        val vm = vm()
+        // The combined state needs the DataStore emit (real IO) — poll.
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (vm.state.value.missingFavorites != 3 &&
+            System.nanoTime() < deadline) {
+            Thread.sleep(25); testScheduler.runCurrent()
+        }
+        assertThat(vm.state.value.missingFavorites).isEqualTo(3)
+    }
+}

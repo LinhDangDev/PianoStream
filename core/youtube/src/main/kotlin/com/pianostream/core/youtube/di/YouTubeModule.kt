@@ -143,7 +143,9 @@ internal object YouTubeModule {
     }
 }
 
-/** Value-handle for the CC10 wipe hook (kept injectable for tests). */
-internal fun interface YouTubeLocalWipe {
+/** Value-handle for the CC10 wipe hook (kept injectable for tests).
+ * Public: the Phase-4 app Settings DELETE-ALL path injects it. */
+
+public fun interface YouTubeLocalWipe {
     fun wipe()
 }

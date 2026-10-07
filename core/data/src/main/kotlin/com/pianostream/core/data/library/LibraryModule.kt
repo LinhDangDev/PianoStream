@@ -3,7 +3,6 @@ package com.pianostream.core.data.library
 import android.content.Context
 import androidx.room.Room
 import com.pianostream.core.data.library.db.LibraryDatabase
-import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -14,11 +13,7 @@ import javax.inject.Singleton
 /** Binds the `library.db` owner + provides the database (Phase 3). */
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class LibraryModule {
-    @Binds
-    @Singleton
-    abstract fun libraryRepository(impl: LibraryRepositoryImpl): LibraryRepository
-
+class LibraryModule {
     companion object {
         @Provides
         @Singleton

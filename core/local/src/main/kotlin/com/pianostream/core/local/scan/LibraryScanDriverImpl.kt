@@ -122,7 +122,11 @@ class LibraryScanDriverImpl @Inject constructor(
         }
         onProgress(ScanProgress(scanned, null))
 
-        store.deleteDiscsNotIn(foundDocIds)
+        // M2 — never delete on a shrinking scan: stale discs stay until the
+        // user confirms (LibraryViewModel's confirm path wipes + rescans).
+        if (scan.discs.size >= previousCount) {
+            store.deleteDiscsNotIn(foundDocIds)
+        }
 
         // B1 reconcile: recompute live keys, tombstone dangling playback rows.
         val liveKeys = HashSet<String>()
@@ -134,7 +138,8 @@ class LibraryScanDriverImpl @Inject constructor(
         val missingCount = store.reconcilePlayback(liveKeys)
 
         if (scan.discs.size < previousCount) {
-            warnings += "expected $previousCount discs, found ${scan.discs.size}"
+            warnings += "expected $previousCount discs, found ${scan.discs.size} " +
+                "— stale rows kept pending confirmation"
         }
         if (reParsed > 0) {
             warnings += "$reParsed new/changed files since last scan"

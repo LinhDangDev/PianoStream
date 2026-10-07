@@ -9,6 +9,7 @@ import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.local.api.LocalLibraryIndex
 import com.pianostream.core.local.api.LocalTrackWindowSource
+import com.pianostream.core.data.playback.StreamCacheEvictor
 import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.media.audio.ReplayGainAudioProcessor
 import com.pianostream.core.media.cache.MediaCache
@@ -25,6 +26,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Named
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -111,6 +113,7 @@ object MediaModule {
 
     @Provides
     @Singleton
+    @Named("secondaryGain")
     fun secondaryGainProcessor(): ReplayGainAudioProcessor =
         // H3 — the crossfade secondary always carries its OWN processor
         // instance (independent of the primary's mode: a fade may happen
@@ -125,7 +128,7 @@ object MediaModule {
         settings: SettingsDataStore,
         primary: ExoPlayer,
         mediaScope: CoroutineScope,
-        secondaryGain: ReplayGainAudioProcessor,
+        @Named("secondaryGain") secondaryGain: ReplayGainAudioProcessor,
     ): CrossfadeController {
         val secondaryProvider: () -> ExoPlayer = {
             PlayerFactory.buildSecondary(
@@ -191,9 +194,20 @@ object MediaModule {
         @ApplicationContext context: Context,
         repository: PlaybackRepository,
         assembler: QueueAssembler,
-    ): PlaybackController = PlaybackControllerImpl(context, repository, assembler)
+    ): PlaybackControllerImpl = PlaybackControllerImpl(context, repository, assembler)
 
     @Provides
     @Singleton
     fun okHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+
+    /**
+     * F18/CC5 — `PlaybackRepository.clearStreamCache()`'s evictor: core:data
+     * cannot see `MediaCache` (dependency direction), so the lambda is the
+     * seam; the impl lives here.
+     */
+    @Provides
+    @Singleton
+    fun streamCacheEvictor(): StreamCacheEvictor = StreamCacheEvictor {
+        MediaCache.clearStreamCache()
+    }
 }

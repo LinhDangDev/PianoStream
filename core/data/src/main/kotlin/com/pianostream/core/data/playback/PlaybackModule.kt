@@ -23,8 +23,14 @@ object PlaybackModule {
             // path (CC10); a schema mismatch surfaces loudly, never silent loss.
             .build()
 
+    // The interface binding lives in the app flavor sets (stub fakes / real
+    // impls) per the plan's stub↔real seam; the impl itself is provided here
+    // because its lambdas have Kotlin defaults Dagger cannot see.
     @Provides
     @Singleton
-    fun playbackRepository(db: PlaybackDatabase): PlaybackRepository =
-        PlaybackRepositoryImpl(db)
+    fun playbackRepositoryImpl(
+        db: PlaybackDatabase,
+        streamCacheEvictor: StreamCacheEvictor,
+    ): PlaybackRepositoryImpl =
+        PlaybackRepositoryImpl(db, streamCacheEvictor = streamCacheEvictor)
 }
