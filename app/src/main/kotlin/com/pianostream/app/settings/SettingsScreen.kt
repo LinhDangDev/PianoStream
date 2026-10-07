@@ -354,7 +354,7 @@ private fun ToggleRow(
                 Text(
                     it,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Aurora.TextSecondary,
                 )
             }
         }
@@ -395,7 +395,7 @@ private fun <T> ChoiceRow(
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Aurora.TextSecondary,
             )
         }
         Text(
@@ -416,7 +416,7 @@ private fun <T> ChoiceRow(
                         Text(
                             label(c),
                             color = if (label(c) == value) Vinyl.Gold
-                            else MaterialTheme.colorScheme.onSurface,
+                            else Aurora.TextPrimary,
                         )
                     },
                     onClick = { onPick(c); expanded = false },
@@ -477,15 +477,15 @@ private fun ActionRow(
         Text(
             title,
             style = MaterialTheme.typography.bodyLarge,
-            color = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (!enabled) Aurora.TextSecondary
             else if (danger) Color(0xFFD97B6C)
-            else MaterialTheme.colorScheme.onSurface,
+            else Aurora.TextPrimary,
         )
         subtitle?.let {
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Aurora.TextSecondary,
             )
         }
     }

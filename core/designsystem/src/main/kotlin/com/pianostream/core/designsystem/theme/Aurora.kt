@@ -47,7 +47,7 @@ object Aurora {
     /** Text/icon color on top of the accent fill — black on light accents. */
     val onAccent: Color get() = if (Accent.luminance() > 0.55f) Color.Black else Color.White
     val TextPrimary = Color(0xFFF5F5F7)
-    val TextSecondary = Color(0xFF98989F)
+    val TextSecondary = Color(0xFFC7C2B8)
     val White = Color(0xFFFFFFFF)
     val Error = Color(0xFFFF6961)
 

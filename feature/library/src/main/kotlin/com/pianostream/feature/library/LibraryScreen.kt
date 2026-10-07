@@ -79,7 +79,7 @@ fun LibraryScreen(
                 Text(
                     "Library: $it",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Aurora.TextSecondary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
