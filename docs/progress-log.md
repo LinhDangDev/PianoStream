@@ -78,3 +78,4 @@ One line per checkpoint: phase, gate result, blockers.
   rate-limited repo1 (HTTP 429): seeded
   `org.robolectric:android-all-instrumented:14-…-i7` into `~/.m2` and pointed
   `robolectric.properties` at the GCS Maven mirror.
+- 2026-10-07 phase-2: `:core:media:test :core:data:test` green (69 unit tests incl. ReplayGain/gain-calc, CC2 cache-key, resolve+403, queue assemble, L1 crossfade matrix, local-clip bounds, queue-state writer; 18 data tests incl. playback.db v1 schema via Robolectric — migration helper runs JVM-side per frozen dep set) + `:core:media:connectedDebugAndroidTest` 5/5 on emulator (exported FGS type, session intent-filter, CC9 allow-list, M6 report). Deviation: `PlaybackDatabaseMigrationTest` lives in `src/test/` (Robolectric) not `src/androidTest/` — core:data build.gradle (frozen) declares zero androidTest deps.
