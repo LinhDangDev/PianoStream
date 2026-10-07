@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.pianostream.core.data.library.LibraryRepository
 import com.pianostream.core.data.library.model.SearchHit
 import com.pianostream.core.data.settings.SettingsDataStore
+import com.pianostream.core.local.scan.LibraryHasher
 import com.pianostream.core.youtube.api.SearchFilter
 import com.pianostream.core.youtube.api.YouTubeClient
 import com.pianostream.core.youtube.api.YouTubeItem
@@ -79,6 +80,17 @@ class SearchViewModel @Inject constructor(
                 _state.update { it.copy(suggestionsEnabled = on) }
             }
         }
+    }
+
+    /**
+     * Local hit → `pianostream://local/<contentKey>` mediaId (CC2): the cue
+     * ordinal is the hit's index among its disc's tracks ordered by
+     * `trackNo` (`tracksOf` order == scan insertion order).
+     */
+    suspend fun mediaIdFor(hit: SearchHit): String? {
+        val disc = libraryRepository.discById(hit.discId) ?: return null
+        val idx = libraryRepository.tracksOf(disc.id).indexOfFirst { it.id == hit.trackId }
+        return if (idx >= 0) LibraryHasher.mediaId(disc.folderPath, idx) else null
     }
 
     /** First-run disclosure accepted for this session (F12). */

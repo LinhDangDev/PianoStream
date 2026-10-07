@@ -10,6 +10,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -26,7 +28,12 @@ fun DiscCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(onClick = onClick, modifier = modifier) {
+    // Action-first description so a11y announces intent, and the E2E suite
+    // can target the card without relying on dynamic titles.
+    Card(
+        onClick = onClick,
+        modifier = modifier.semantics { contentDescription = "Open disc: $title" },
+    ) {
         Column {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)

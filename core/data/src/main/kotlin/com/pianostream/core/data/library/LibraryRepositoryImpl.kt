@@ -78,10 +78,14 @@ class LibraryRepositoryImpl @Inject constructor(
 
     override suspend fun revokeLibraryAccess() {
         val treeUri = settings.libraryRootTreeUri.first() ?: return
-        context.contentResolver.releasePersistableUriPermission(
-            Uri.parse(treeUri),
-            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-        )
+        // Grant may already be gone (revoked in system settings) —
+        // releasePersistableUriPermission throws SecurityException then.
+        runCatching {
+            context.contentResolver.releasePersistableUriPermission(
+                Uri.parse(treeUri),
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
         settings.setLibraryRootTreeUri(null)
     }
 

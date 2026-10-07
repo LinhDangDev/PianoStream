@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.pianostream.app.navigation.AppNav
 import com.pianostream.app.navigation.Route
 import com.pianostream.app.scaffold.AppScaffold
@@ -27,8 +28,16 @@ public class MainActivity : ComponentActivity() {
                 // Back stack hoisted above the scaffold so the mini player
                 // survives tab switches (plan C1).
                 val backStack = rememberNavBackStack(Route.Home)
+                // Same activity-scoped instance AppScaffold uses (C1).
+                val appViewModel: AppViewModel = hiltViewModel()
                 AppScaffold(backStack = backStack) {
-                    AppNav(backStack = backStack)
+                    AppNav(
+                        backStack = backStack,
+                        onPlayQueue = { items, start ->
+                            appViewModel.playQueue(items, start)
+                            backStack.add(Route.NowPlaying)
+                        },
+                    )
                 }
             }
         }

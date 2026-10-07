@@ -10,6 +10,11 @@ import androidx.media3.common.util.UnstableApi
 import com.google.common.truth.Truth.assertThat
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.pianostream.core.data.playback.PlaybackRepository
+import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.data.playback.model.QueueState
 import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.youtube.api.ExtractionException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -199,7 +204,7 @@ class PlayerViewModelTest {
         // handler-posted delays ShadowLooper can pump. A TestDispatcher
         // Main would share this runTest's scheduler and its end-of-test
         // advanceUntilIdle would spin on the VM's infinite 1 s ticker.
-        val vm = PlayerViewModel(controller)
+        val vm = PlayerViewModel(controller, FakePlaybackRepository())
         vm.connect()
         ShadowLooper.idleMainLooper()
         return vm
@@ -317,4 +322,39 @@ class PlayerViewModelTest {
         assertThat(player.indexSeekCalls.size + player.seekToCalls.size)
             .isGreaterThan(before)
     }
+}
+
+/** Minimal in-memory repo — move/remove mirrors are the only parts under test. */
+private class FakePlaybackRepository : PlaybackRepository {
+    val queue = MutableStateFlow<List<QueueItem>>(emptyList())
+    var state: QueueState? = null
+
+    override fun observeQueue(): Flow<List<QueueItem>> = queue
+    override fun observeQueueState(): Flow<QueueState?> = MutableStateFlow(state)
+    override suspend fun replaceQueue(items: List<QueueItem>, state: QueueState?) {
+        queue.value = items.mapIndexed { i, q -> q.copy(position = i) }
+        state?.let { this.state = it }
+    }
+
+    override suspend fun moveQueueItem(fromPosition: Int, toPosition: Int) {
+        val rows = queue.value.toMutableList()
+        if (fromPosition !in rows.indices || toPosition !in rows.indices) return
+        val moved = rows.removeAt(fromPosition)
+        rows.add(toPosition, moved)
+        queue.value = rows.mapIndexed { i, q -> q.copy(position = i) }
+    }
+
+    override suspend fun saveQueueCursor(state: QueueState) {
+        this.state = state
+    }
+
+    override fun observeHistory(): Flow<List<PlayHistoryItem>> = MutableStateFlow(emptyList())
+    override suspend fun appendHistory(item: PlayHistoryItem) = Unit
+    override fun observeFavorites(): Flow<List<FavoriteItem>> = MutableStateFlow(emptyList())
+    override suspend fun addFavorite(item: FavoriteItem) = Unit
+    override suspend fun removeFavorite(mediaId: String) = Unit
+    override suspend fun isFavorite(mediaId: String): Boolean = false
+    override suspend fun reconcileMissing(existingMediaIds: Set<String>) = Unit
+    override suspend fun clearStreamCache() = Unit
+    override suspend fun clearAll() = Unit
 }

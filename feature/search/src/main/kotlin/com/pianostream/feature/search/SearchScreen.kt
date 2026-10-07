@@ -19,8 +19,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pianostream.core.data.library.model.SearchHit
+import com.pianostream.core.data.playback.model.MediaSource
+import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
@@ -32,11 +38,13 @@ import com.pianostream.core.designsystem.component.TrackRow
  */
 @Composable
 fun SearchScreen(
-    onOpenTrack: (String) -> Unit,
+    /** Play a queue: rows + start position (C6 — app layer owns the player). */
+    onPlayQueue: (List<QueueItem>, Int) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
     Column(modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -107,7 +115,13 @@ fun SearchScreen(
                         subtitle = hit.snippet,
                         artworkUri = null,
                         durationMs = null,
-                        onClick = { onOpenTrack("track:${hit.trackId}") },
+                        onClick = {
+                            scope.launch {
+                                viewModel.mediaIdFor(hit)?.let { mediaId ->
+                                    onPlayQueue(listOf(hit.toQueueItem(mediaId)), 0)
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -135,7 +149,11 @@ fun SearchScreen(
                             subtitle = item.subtitle,
                             artworkUri = item.artworkUri,
                             durationMs = item.durationMs,
-                            onClick = { item.videoId?.let(onOpenTrack) },
+                            onClick = {
+                                item.videoId?.let { vid ->
+                                    onPlayQueue(listOf(item.toQueueItem(vid)), 0)
+                                }
+                            },
                         )
                     }
                 }
@@ -143,3 +161,27 @@ fun SearchScreen(
         }
     }
 }
+
+private fun SearchHit.toQueueItem(mediaId: String): QueueItem = QueueItem(
+    position = 0,
+    mediaId = mediaId,
+    title = title,
+    artist = snippet,
+    artworkUri = null,
+    source = MediaSource.LOCAL,
+    durationMs = null,
+    addedAt = System.currentTimeMillis(),
+)
+
+private fun com.pianostream.core.youtube.api.YouTubeItem.toQueueItem(
+    videoId: String,
+): QueueItem = QueueItem(
+    position = 0,
+    mediaId = PianoStreamUri.stream(videoId),
+    title = title,
+    artist = subtitle,
+    artworkUri = artworkUri,
+    source = MediaSource.YOUTUBE,
+    durationMs = durationMs,
+    addedAt = System.currentTimeMillis(),
+)

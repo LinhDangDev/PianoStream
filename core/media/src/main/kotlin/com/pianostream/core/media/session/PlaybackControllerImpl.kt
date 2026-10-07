@@ -56,6 +56,14 @@ class PlaybackControllerImpl(
         } ?: return false
         controller = built
 
+        // Ready flips whenever the timeline gains items — cold-start restore
+        // below OR a later UI-submitted setMediaItems (AppViewModel.playQueue).
+        built.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                if (built.mediaItemCount > 0) ready.value = true
+            }
+        })
+
         // M9: explicit restore on the connect path (NOT onPlaybackResumption).
         val restored = restoreColdStart(built)
         ready.value = built.mediaItemCount > 0 || restored

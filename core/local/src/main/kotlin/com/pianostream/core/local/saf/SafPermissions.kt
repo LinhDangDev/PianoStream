@@ -55,11 +55,9 @@ object SafPermissions {
         if (authority !in ALLOWED_AUTHORITIES) {
             return TakeResult.UnsupportedProvider(authority)
         }
-        val takeFlags = flags and
-            (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        check(takeFlags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION == 0) {
-            "WRITE grant must never be taken (F8)"
-        }
+        // F8: providers (e.g. DocumentsUI) legitimately offer READ|WRITE;
+        // the invariant is that we never *take* WRITE — mask to READ only.
+        val takeFlags = flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
         resolver.takePersistableUriPermission(tree, takeFlags)
         return TakeResult.Granted(
             treeUri = tree,

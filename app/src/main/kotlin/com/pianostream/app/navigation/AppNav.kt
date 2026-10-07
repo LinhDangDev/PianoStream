@@ -11,24 +11,34 @@ import com.pianostream.feature.home.HomeScreen
 import com.pianostream.feature.library.LibraryScreen
 import com.pianostream.feature.player.NowPlayingScreen
 import com.pianostream.feature.player.QueueSheet
+import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.feature.search.SearchScreen
+import kotlinx.serialization.Serializable
 
 /** App destinations (Navigation3 keys). */
+// Nav3 serializes the back stack for state save/restore — every key must
+// be @Serializable (incl. the objects; the sealed interface gives the
+// polymorphic serializer).
+@Serializable
 public sealed interface Route : NavKey {
-    public data object Home : Route
-    public data object Search : Route
-    public data object Library : Route
-    public data object NowPlaying : Route
-    public data object Queue : Route
-    public data object Settings : Route
-    public data object About : Route
+    @Serializable public data object Home : Route
+    @Serializable public data object Search : Route
+    @Serializable public data object Library : Route
+    @Serializable public data object NowPlaying : Route
+    @Serializable public data object Queue : Route
+    @Serializable public data object Settings : Route
+    @Serializable public data object About : Route
     /** Bound per-dist: github → real updater screen, foss → no-op (R5). */
-    public data object UpdaterOptIn : Route
+    @Serializable public data object UpdaterOptIn : Route
 }
 
 /** Root NavDisplay. The back stack is hoisted in `MainActivity` (C1). */
 @Composable
-public fun AppNav(backStack: NavBackStack<NavKey>) {
+public fun AppNav(
+    backStack: NavBackStack<NavKey>,
+    /** "Play these rows at position" — MainActivity routes it to AppViewModel.playQueue. */
+    onPlayQueue: (List<QueueItem>, Int) -> Unit,
+) {
     NavDisplay(
         backStack = backStack,
         onBack = { backStack.removeLastOrNull() },
@@ -36,16 +46,14 @@ public fun AppNav(backStack: NavBackStack<NavKey>) {
             entry<Route.Home> {
                 HomeScreen(
                     onOpenDisc = { backStack.add(Route.Library) },
-                    onOpenTrack = { backStack.add(Route.NowPlaying) },
+                    onPlayQueue = onPlayQueue,
                 )
             }
             entry<Route.Search> {
-                SearchScreen(onOpenTrack = { backStack.add(Route.NowPlaying) })
+                SearchScreen(onPlayQueue = onPlayQueue)
             }
             entry<Route.Library> {
-                LibraryScreen(
-                    onOpenTrack = { backStack.add(Route.NowPlaying) },
-                )
+                LibraryScreen(onPlayQueue = onPlayQueue)
             }
             entry<Route.NowPlaying> {
                 NowPlayingScreen(

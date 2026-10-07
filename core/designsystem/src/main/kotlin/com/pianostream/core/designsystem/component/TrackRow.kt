@@ -17,6 +17,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,7 +42,8 @@ fun TrackRow(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp), // ≥48dp touch target
+            .heightIn(min = 56.dp) // ≥48dp touch target
+            .semantics { contentDescription = "Play track: $title" },
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

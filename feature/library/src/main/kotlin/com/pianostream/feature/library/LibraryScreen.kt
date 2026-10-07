@@ -29,7 +29,10 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pianostream.core.designsystem.component.DiscCard
 import com.pianostream.core.designsystem.component.EmptyState
+import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.designsystem.component.TrackRow
+import androidx.compose.foundation.lazy.itemsIndexed
 
 /**
  * Library — tabs Discs / Tracks / Composers / Playlists / Favorites (C5),
@@ -37,7 +40,8 @@ import com.pianostream.core.designsystem.component.TrackRow
  */
 @Composable
 fun LibraryScreen(
-    onOpenTrack: (String) -> Unit,
+    /** Play a queue: rows + start position (C6 — app layer owns the player). */
+    onPlayQueue: (List<QueueItem>, Int) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
@@ -47,6 +51,14 @@ fun LibraryScreen(
     val tabs = listOf("Discs", "Tracks", "Composers", "Playlists", "Favorites")
 
     Column(modifier.fillMaxSize()) {
+        // F8: grant-loss/error surface — visible regardless of hasRoot.
+        state.grantError?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
         if (!state.hasRoot) {
             EmptyState(
                 title = "No library folder",
@@ -54,13 +66,6 @@ fun LibraryScreen(
             )
             Row(Modifier.padding(16.dp)) {
                 TextButton(onClick = launchPicker) { Text("Pick library folder") }
-            }
-            state.grantError?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
             }
         } else {
             state.rootPath?.let {
@@ -70,6 +75,33 @@ fun LibraryScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+            }
+            Row(Modifier.padding(horizontal = 8.dp)) {
+                TextButton(
+                    onClick = viewModel::rescan,
+                    enabled = !state.scanning,
+                ) { Text(if (state.scanning) "Scanning…" else "Rescan") }
+                TextButton(onClick = viewModel::revokeAccess) { Text("Revoke access") }
+            }
+            // E2 — the "N new / M removed" completion summary + scan warnings
+            // (e.g. "0 discs found — refusing to wipe") must be visible; the
+            // VM computed them but nothing rendered them.
+            state.lastScan?.let { summary ->
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Text(
+                        "Scan: ${summary.newDiscs} new, " +
+                            "${summary.removedDiscs} removed, " +
+                            "${summary.tracks} tracks",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    summary.warnings.forEach { w ->
+                        Text(
+                            w,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
             }
             ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
                 tabs.forEachIndexed { i, label ->
@@ -82,10 +114,17 @@ fun LibraryScreen(
             }
             when (tab) {
                 0 -> DiscsTab(state, onSelect = { viewModel.selectDisc(it) })
-                1 -> TracksTab(state, onOpenTrack)
+                1 -> TracksTab(
+                    state,
+                    onPlayAt = { idx ->
+                        viewModel.discQueue(idx)?.let { (rows, start) ->
+                            onPlayQueue(rows, start)
+                        }
+                    },
+                )
                 2 -> ComposersTab(state)
-                3 -> PlaylistsTab(state, onOpenTrack)
-                4 -> FavoritesTab(state, onOpenTrack)
+                3 -> PlaylistsTab(state, onPlayQueue)
+                4 -> FavoritesTab(state, onPlayQueue)
             }
         }
     }
@@ -141,20 +180,20 @@ private fun DiscsTab(
 @Composable
 private fun TracksTab(
     state: LibraryViewModel.UiState,
-    onOpenTrack: (String) -> Unit,
+    onPlayAt: (Int) -> Unit,
 ) {
     if (state.selectedDisc == null) {
         EmptyState("Pick a disc", "Track list appears here.")
         return
     }
     LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-        items(state.tracks, key = { it.id }) { t ->
+        itemsIndexed(state.tracks, key = { _, t -> t.id }) { idx, t ->
             TrackRow(
                 title = t.title,
                 subtitle = t.performer ?: t.composer,
                 artworkUri = null,
                 durationMs = t.endMs?.let { it - t.startMs },
-                onClick = { onOpenTrack("track:${t.id}") },
+                onClick = { onPlayAt(idx) },
             )
         }
     }
@@ -182,20 +221,20 @@ private fun ComposersTab(state: LibraryViewModel.UiState) {
 @Composable
 private fun PlaylistsTab(
     state: LibraryViewModel.UiState,
-    onOpenTrack: (String) -> Unit,
+    onPlayQueue: (List<QueueItem>, Int) -> Unit,
 ) {
     if (state.queue.isEmpty()) {
         EmptyState("Nothing queued", "Your current playback queue shows here.")
         return
     }
     LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-        items(state.queue, key = { it.id }) { q ->
+        itemsIndexed(state.queue, key = { _, q -> q.id }) { idx, q ->
             TrackRow(
                 title = q.title,
                 subtitle = q.artist,
                 artworkUri = q.artworkUri,
                 durationMs = q.durationMs,
-                onClick = { onOpenTrack(q.mediaId) },
+                onClick = { onPlayQueue(state.queue, idx) },
             )
         }
     }
@@ -204,7 +243,7 @@ private fun PlaylistsTab(
 @Composable
 private fun FavoritesTab(
     state: LibraryViewModel.UiState,
-    onOpenTrack: (String) -> Unit,
+    onPlayQueue: (List<QueueItem>, Int) -> Unit,
 ) {
     Column {
         if (state.missingFavorites > 0) {
@@ -226,9 +265,21 @@ private fun FavoritesTab(
                     subtitle = f.artist,
                     artworkUri = f.artworkUri,
                     durationMs = null,
-                    onClick = { onOpenTrack(f.mediaId) },
+                    onClick = { onPlayQueue(listOf(f.toQueueItem()), 0) },
                 )
             }
         }
     }
 }
+
+/** Favourite row → single-entry queue. */
+private fun FavoriteItem.toQueueItem(): QueueItem = QueueItem(
+    position = 0,
+    mediaId = mediaId,
+    title = title,
+    artist = artist,
+    artworkUri = artworkUri,
+    source = source,
+    durationMs = null,
+    addedAt = System.currentTimeMillis(),
+)

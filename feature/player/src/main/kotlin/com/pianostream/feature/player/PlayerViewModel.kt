@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.youtube.api.ExtractionException
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -29,6 +31,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val controller: PlaybackController,
+    private val playbackRepository: PlaybackRepository,
 ) : ViewModel() {
 
     data class UiState(
@@ -165,15 +168,26 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    /** Queue ops — inert while `isPlaylistReady` is false (M9). */
+    /** Queue ops — inert while `isPlaylistReady` is false (M9).
+     *  Every mutation ALSO mirrors into `queue_items` (B9): the durable
+     *  queue is the only cold-start source, so a reorder/remove that only
+     *  touched the player would resurrect the stale order after kill. */
     fun move(from: Int, to: Int) {
         if (!_state.value.isPlaylistReady) return
         controller.player.moveMediaItem(from, to)
+        scope.launch { runCatching { playbackRepository.moveQueueItem(from, to) } }
     }
 
     fun removeAt(index: Int) {
         if (!_state.value.isPlaylistReady) return
         controller.player.removeMediaItem(index)
+        scope.launch {
+            runCatching {
+                val remaining = playbackRepository.observeQueue().first()
+                    .filterIndexed { i, _ -> i != index }
+                playbackRepository.replaceQueue(remaining, null)
+            }
+        }
     }
 
     fun playAt(index: Int) {

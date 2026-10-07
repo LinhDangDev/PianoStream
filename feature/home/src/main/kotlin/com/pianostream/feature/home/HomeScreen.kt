@@ -23,6 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pianostream.core.data.playback.model.MediaSource
+import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.designsystem.component.DiscCard
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.designsystem.component.PlaybackErrorState
@@ -35,7 +39,8 @@ import com.pianostream.core.designsystem.component.TrackRow
 @Composable
 fun HomeScreen(
     onOpenDisc: (Long) -> Unit,
-    onOpenTrack: (String) -> Unit,
+    /** Play a queue: rows + start position (C6 — app layer owns the player). */
+    onPlayQueue: (List<QueueItem>, Int) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -53,7 +58,7 @@ fun HomeScreen(
                     subtitle = item.artist,
                     artworkUri = item.artworkUri,
                     durationMs = null,
-                    onClick = { onOpenTrack(item.mediaId) },
+                    onClick = { onPlayQueue(listOf(item.toQueueItem()), 0) },
                 )
             }
         }
@@ -135,7 +140,9 @@ fun HomeScreen(
                                 subtitle = item.subtitle,
                                 artworkUri = item.artworkUri,
                                 onClick = {
-                                    item.videoId?.let(onOpenTrack)
+                                    item.videoId?.let { vid ->
+                                        onPlayQueue(listOf(item.toQueueItem(vid)), 0)
+                                    }
                                 },
                                 modifier = Modifier.width(160.dp),
                             )
@@ -146,3 +153,27 @@ fun HomeScreen(
         }
     }
 }
+
+private fun PlayHistoryItem.toQueueItem(): QueueItem = QueueItem(
+    position = 0,
+    mediaId = mediaId,
+    title = title,
+    artist = artist,
+    artworkUri = artworkUri,
+    source = source,
+    durationMs = null,
+    addedAt = System.currentTimeMillis(),
+)
+
+private fun com.pianostream.core.youtube.api.YouTubeItem.toQueueItem(
+    videoId: String,
+): QueueItem = QueueItem(
+    position = 0,
+    mediaId = PianoStreamUri.stream(videoId),
+    title = title,
+    artist = subtitle,
+    artworkUri = artworkUri,
+    source = MediaSource.YOUTUBE,
+    durationMs = durationMs,
+    addedAt = System.currentTimeMillis(),
+)

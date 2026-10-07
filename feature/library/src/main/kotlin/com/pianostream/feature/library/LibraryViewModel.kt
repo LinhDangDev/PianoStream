@@ -9,8 +9,10 @@ import com.pianostream.core.data.library.model.ScanResult
 import com.pianostream.core.data.library.model.Track
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.settings.SettingsDataStore
+import com.pianostream.core.local.scan.LibraryHasher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -106,6 +108,33 @@ class LibraryViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Queue rows for the selected disc ordered by cue position (tap a track →
+     * play the disc from that track, CC1). mediaIds are
+     * `pianostream://local/<contentKey>` where the key hashes
+     * `(folderPath, cueOrdinal)` (CC2/B3); cue ordinal == the track's index
+     * in `tracks` (scan writes rows in cue order).
+     */
+    fun discQueue(startIndex: Int): Pair<List<QueueItem>, Int>? {
+        val s = _state.value
+        val disc = s.selectedDisc ?: return null
+        if (s.tracks.isEmpty() || startIndex !in s.tracks.indices) return null
+        val now = System.currentTimeMillis()
+        val rows = s.tracks.mapIndexed { i, t ->
+            QueueItem(
+                position = i,
+                mediaId = LibraryHasher.mediaId(disc.folderPath, i),
+                title = t.title,
+                artist = t.performer ?: t.composer,
+                artworkUri = disc.artworkUri,
+                source = MediaSource.LOCAL,
+                durationMs = t.endMs?.let { it - t.startMs },
+                addedAt = now,
+            )
+        }
+        return rows to startIndex
     }
 
     fun selectDisc(disc: Disc?) {
