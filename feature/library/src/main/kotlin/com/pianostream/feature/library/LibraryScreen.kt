@@ -1,14 +1,17 @@
 package com.pianostream.feature.library
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -24,18 +27,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pianostream.core.data.library.model.Disc
 import com.pianostream.core.designsystem.component.DiscCard
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import com.pianostream.core.designsystem.component.SINGLE_LABEL_RATIO
+import com.pianostream.core.designsystem.component.SingleBadge
 import com.pianostream.core.designsystem.component.Vinyl
+import com.pianostream.core.designsystem.component.VinylDisc
 import com.pianostream.core.designsystem.theme.Aurora
 
 /**
@@ -66,7 +77,7 @@ fun LibraryScreen(
         if (!state.hasRoot) {
             EmptyState(
                 title = "No library folder",
-                body = "Pick the folder holding your discs to build the library.",
+                body = "Pick the folder holding your music to build the library.",
             )
             Row(Modifier.padding(16.dp)) {
                 TextButton(
@@ -184,25 +195,49 @@ fun LibraryScreen(
 @Composable
 private fun DiscsTab(
     state: LibraryViewModel.UiState,
-    onSelect: (com.pianostream.core.data.library.model.Disc) -> Unit,
+    onSelect: (Disc) -> Unit,
 ) {
     if (state.discs.isEmpty()) {
-        EmptyState("No discs", "Run a scan to populate your library.")
+        EmptyState("No discs", "Run a scan to import albums and loose tracks.")
         return
     }
+    // Loose files land as one-track discs (Singles.kt). Like Apple Music's
+    // "Singles & EPs" split they group under their own header once present;
+    // an albums-only library keeps the plain grid.
+    val albums = state.discs.filterNot { it.isSingle() }
+    val singles = state.discs.filter { it.isSingle() }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(state.discs, key = { it.id }) { disc ->
+        if (albums.isNotEmpty() && singles.isNotEmpty()) {
+            item(key = "header-albums", span = { GridItemSpan(maxLineSpan) }) {
+                SectionHeader("Albums")
+            }
+        }
+        items(albums, key = { it.id }) { disc ->
             DiscCard(
                 title = disc.title,
                 subtitle = disc.performer ?: disc.composer,
                 artworkUri = disc.artworkUri,
                 onClick = { onSelect(disc) },
             )
+        }
+        if (singles.isNotEmpty()) {
+            item(key = "header-singles", span = { GridItemSpan(maxLineSpan) }) {
+                SectionHeader("Singles")
+            }
+            items(singles, key = { it.id }) { disc ->
+                DiscCard(
+                    title = disc.title,
+                    subtitle = disc.performer ?: disc.composer,
+                    artworkUri = disc.artworkUri,
+                    onClick = { onSelect(disc) },
+                    isSingle = true,
+                )
+            }
         }
     }
 }
@@ -212,18 +247,72 @@ private fun TracksTab(
     state: LibraryViewModel.UiState,
     onPlayAt: (Int) -> Unit,
 ) {
-    if (state.selectedDisc == null) {
+    val disc = state.selectedDisc
+    if (disc == null) {
         EmptyState("Pick a disc", "Track list appears here.")
         return
     }
     LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
+        item { DiscHeader(disc) }
         itemsIndexed(state.tracks, key = { _, t -> t.id }) { idx, t ->
             TrackRow(
                 title = t.title,
                 subtitle = t.performer ?: t.composer,
-                artworkUri = null,
+                artworkUri = disc.artworkUri,
                 durationMs = t.endMs?.let { it - t.startMs },
                 onClick = { onPlayAt(idx) },
+            )
+        }
+    }
+}
+
+/**
+ * The selected disc's header — vinyl thumb (artwork label, or the red
+ * placeholder when a single's tags carry no art) + title + credit line.
+ * Singles get the 7-inch label and a "Single" type prefix like YouTube
+ * Music's "Single · Artist" line.
+ */
+@Composable
+private fun DiscHeader(disc: Disc) {
+    val single = disc.isSingle()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(72.dp)) {
+            VinylDisc(
+                artworkUri = disc.artworkUri,
+                title = disc.title,
+                modifier = Modifier.fillMaxSize(),
+                labelRatio = if (single) SINGLE_LABEL_RATIO else Vinyl.LABEL_RATIO,
+            )
+            if (single) {
+                SingleBadge(Modifier.align(Alignment.TopStart), diameter = 20.dp)
+            }
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                disc.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Aurora.TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val credit = disc.performer ?: disc.composer
+            Text(
+                when {
+                    single && credit != null -> "Single · $credit"
+                    single -> "Single"
+                    else -> credit.orEmpty()
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = Aurora.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

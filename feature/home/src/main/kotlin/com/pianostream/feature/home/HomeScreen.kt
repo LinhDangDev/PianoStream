@@ -125,6 +125,7 @@ fun HomeScreen(
                             subtitle = disc.performer ?: disc.composer,
                             artworkUri = disc.artworkUri,
                             onClick = { onOpenDisc(disc.id) },
+                            isSingle = disc.isSingle(),
                         )
                     }
                 }
@@ -190,6 +191,14 @@ fun HomeScreen(
         }
     }
 }
+
+/**
+ * Shared contract with the scan pipeline: a loose file (no .cue FILE
+ * entry) is stored as a one-track disc marked by an empty `cueUri`
+ * (null or the "" sentinel) — a cue disc always carries its .cue URI.
+ */
+private fun com.pianostream.core.data.library.model.Disc.isSingle(): Boolean =
+    cueUri.isNullOrEmpty()
 
 private fun PlayHistoryItem.toQueueItem(): QueueItem = QueueItem(
     position = 0,
