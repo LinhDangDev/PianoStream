@@ -1,0 +1,28 @@
+{
+  "contents": [
+    {
+      "searchSuggestionsSectionRenderer": {
+        "contents": [
+          {
+            "searchSuggestionRenderer": {
+              "suggestion": { "runs": [{ "text": "chopin nocturne" }] },
+              "navigationEndpoint": { "searchEndpoint": { "query": "chopin nocturne" } }
+            }
+          },
+          {
+            "searchSuggestionRenderer": {
+              "suggestion": { "runs": [{ "text": "chopin etudes" }] },
+              "navigationEndpoint": { "searchEndpoint": { "query": "chopin etudes" } }
+            }
+          },
+          {
+            "searchSuggestionRenderer": {
+              "suggestion": { "runs": [{ "text": "chopin ballade 1" }] },
+              "navigationEndpoint": { "searchEndpoint": { "query": "chopin ballade 1" } }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

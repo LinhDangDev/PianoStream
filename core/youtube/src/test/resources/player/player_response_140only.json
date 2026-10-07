@@ -1,0 +1,16 @@
+{
+  "responseContext": {},
+  "playabilityStatus": { "status": "OK" },
+  "videoDetails": { "videoId": "dQw4w9WgXcQ", "lengthSeconds": "212" },
+  "streamingData": {
+    "adaptiveFormats": [
+      {
+        "itag": 140,
+        "url": "https://rr1---sn-example.googlevideo.com/videoplayback?expire=2000000000&id=o-abc&itag=140",
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 128000,
+        "contentLength": "2700000"
+      }
+    ]
+  }
+}

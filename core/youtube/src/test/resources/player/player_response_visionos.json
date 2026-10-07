@@ -1,0 +1,31 @@
+{
+  "responseContext": {},
+  "playabilityStatus": { "status": "OK", "playableInEmbed": true },
+  "videoDetails": { "videoId": "dQw4w9WgXcQ", "lengthSeconds": "212" },
+  "streamingData": {
+    "expiresInSeconds": "21540",
+    "adaptiveFormats": [
+      {
+        "itag": 251,
+        "url": "https://rr1---sn-example.googlevideo.com/videoplayback?expire=2000000000&ei=aa&ip=1.2.3.4&id=o-abc&itag=251&source=youtube&mime=audio%2Fwebm",
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "bitrate": 160000,
+        "contentLength": "3400000"
+      },
+      {
+        "itag": 140,
+        "url": "https://rr1---sn-example.googlevideo.com/videoplayback?expire=2000000000&ei=aa&ip=1.2.3.4&id=o-abc&itag=140&source=youtube&mime=audio%2Fmp4",
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 128000,
+        "contentLength": "2700000"
+      },
+      {
+        "itag": 22,
+        "url": "https://rr1---sn-example.googlevideo.com/videoplayback?expire=2000000000&ei=aa&ip=1.2.3.4&id=o-abc&itag=22",
+        "mimeType": "video/mp4; codecs=\"avc1\"",
+        "bitrate": 200000,
+        "contentLength": "8000000"
+      }
+    ]
+  }
+}

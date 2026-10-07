@@ -51,3 +51,30 @@ One line per checkpoint: phase, gate result, blockers.
 - 2026-10-07 | 1a | Interface Freeze set written with KDoc citing CC1–CC11 /
   SEC-F* / F* / M* / H* / L1 at definition sites; freeze commit
   `freeze: shared contracts (plan 20261007-pianostream)` next.
+- 2026-10-07 | 1a | Freeze commit `1efaac6` on main — contracts sealed; no
+  Gradle/freeze-path edits allowed below this point.
+- 2026-10-07 | 1b | `:core:youtube` extractor-core implemented (InnerTube
+  WEB_REMIX client, client catalog + health + fallback, stream resolver with
+  LRU cache keyed (videoId,clientId,itag) + 300s floor + F17 expire clamp,
+  QuickJS cipher solver behind a `JsEngine` seam (F14 bounds unit-testable),
+  remote-config registry with host allow-list + ETag + single-flight behind
+  `remoteConfigEnabled`, :potoken-process WebView host with lockdown settings
+  + write-only bridge + nav allow-list + separate VISITOR/GVS token caches,
+  Hilt `YouTubeModule` + `YouTubeLocalWipe` hook).
+- 2026-10-07 | 1b | GATE GREEN — `:core:youtube:test` 70 tests / 12 classes /
+  0 failures (MockWebServer: fixture search/browse/suggestions, resolver
+  itag 251→140 + cache hit + force-resolve + 429 + mismatch demotion + GVS
+  binding separation; registry reject corpus; QuickJS deadline/memory/
+  non-blocking via fake engine; expire clamp edges; WebView lockdown via
+  Robolectric). `assembleGithubStubDebug` stays green. Not covered on JVM
+  (deferred to 5a by design): native QuickJS engine path, real poToken mint,
+  manual on-device smoke — noted in phase notes.
+- 2026-10-07 | 1b | Fixes found by the suite: JSON fixture brace; ItemParser
+  received inner renderer without wrapper key (carousel shelf dropped) →
+  `rendererKey` parameter; suggestions walked `v["searchSuggestionRenderer"]`
+  instead of matching the key; remote-config coalesce blocked a *fresh*
+  forced refresh → only waiters satisfied in-flight are coalesced.
+- 2026-10-07 | env | Robolectric runtime fetch bypassed Gradle repos and hit
+  rate-limited repo1 (HTTP 429): seeded
+  `org.robolectric:android-all-instrumented:14-…-i7` into `~/.m2` and pointed
+  `robolectric.properties` at the GCS Maven mirror.

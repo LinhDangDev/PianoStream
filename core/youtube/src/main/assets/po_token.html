@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  poToken mint harness (CC8/F3). Runs inside the locked-down :potoken WebView:
+  file/content access off, DOM storage off, SafeBrowsing on, navigation limited
+  to youtube.com origins, and the ONLY bridge is the write-only
+  PianoStreamTokenBridge.submitToken(binding, token).
+
+  Flow: fetch the BotGuard attestation program via youtubei's att/get (the
+  community-documented mint path), run it inside this page's VM, then submit
+  the produced token. event.origin is checked on every inbound message.
+-->
+<script>
+"use strict";
+
+(function () {
+    var ORIGINS = [
+        "https://www.youtube.com",
+        "https://music.youtube.com",
+        "file://"
+    ];
+
+    function originAllowed(o) {
+        return ORIGINS.indexOf(o) >= 0;
+    }
+
+    function fail(msg) {
+        // No bridge for failures on purpose — the bridge is write-only for
+        // tokens. The caller relies on its own mint deadline.
+        window.__poTokenError = String(msg);
+    }
+
+    function submit(binding, token) {
+        try {
+            window.PianoStreamTokenBridge.submitToken(binding, token);
+        } catch (e) {
+            fail("bridge submit: " + e);
+        }
+    }
+
+    window.addEventListener("message", function (ev) {
+        if (!originAllowed(ev.origin)) return;
+        var d = ev.data || {};
+        if (d.type !== "mint") return;
+        mint(d.binding || "VISITOR", d.key || "");
+    });
+
+    function params() {
+        var q = location.search.substring(1).split("&");
+        var out = {};
+        for (var i = 0; i < q.length; i++) {
+            var kv = q[i].split("=");
+            if (kv[0]) out[kv[0]] = decodeURIComponent(kv[1] || "");
+        }
+        return out;
+    }
+
+    function mint(binding, key) {
+        // BotGuard VM program bootstrap (community technique):
+        //  1. POST /youtubei/v1/att/get to obtain the challenge program;
+        //  2. load the program into an isolated interpreter frame;
+        //  3. call the emitted att() for this binding's input;
+        //  4. submitToken(binding, token).
+        // The host process/settings are already the sandbox; no file access,
+        // no storage, navigation filtered to youtube origins.
+        fetch("https://www.youtube.com/youtubei/v1/att/get", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                engagementType: "ENGAGEMENT_TYPE_UNBOUND"
+            })
+        }).then(function (r) { return r.json(); }).then(function (resp) {
+            var challenge =
+                resp && resp.challenge &&
+                resp.challenge.bg_challenge &&
+                resp.challenge.bg_challenge.program;
+            if (!challenge) { fail("no bg program"); return; }
+            runProgram(challenge, binding, key);
+        }).catch(function (e) { fail("att/get: " + e); });
+    }
+
+    function runProgram(program, binding, key) {
+        try {
+            var vm = { done: false, token: null };
+            // The BotGuard program is self-contained; eval in a Function scope
+            // so it cannot see this closure's helpers.
+            var run = new Function("vm", program);
+            run(vm);
+            var poll = setInterval(function () {
+                if (vm.done || vm.token) {
+                    clearInterval(poll);
+                    submit(binding, vm.token);
+                }
+            }, 100);
+            setTimeout(function () { clearInterval(poll); fail("mint timeout"); }, 6000);
+        } catch (e) {
+            fail("program: " + e);
+        }
+    }
+
+    // Auto-start from ?b=BINDING&s=SEED when loaded by the host.
+    var p = params();
+    if (p.b) mint(p.b, p.s || "");
+})();
+</script>
+</head>
+<body></body>
+</html>

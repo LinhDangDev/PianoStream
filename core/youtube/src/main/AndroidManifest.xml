@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- CC8: poToken minting + the WebViewCipherSolver fallback live in a
+             dedicated process, non-exported. See potoken/PoTokenHostService. -->
+        <service
+            android:name=".potoken.PoTokenHostService"
+            android:process=":potoken"
+            android:exported="false" />
+    </application>
+</manifest>

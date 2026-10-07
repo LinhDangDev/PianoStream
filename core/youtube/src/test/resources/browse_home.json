@@ -1,0 +1,91 @@
+{
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicCarouselShelfRenderer": {
+                      "header": {
+                        "musicCarouselShelfBasicHeaderRenderer": {
+                          "title": { "runs": [{ "text": "Quick picks" }] }
+                        }
+                      },
+                      "contents": [
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "Chopin Essentials" }] },
+                            "navigationEndpoint": {
+                              "watchPlaylistEndpoint": { "playlistId": "RDAMVMchopin" }
+                            },
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    { "url": "https://i.ytimg.com/abc/thumb.jpg" }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "musicShelfRenderer": {
+                      "title": { "runs": [{ "text": "Top songs" }] },
+                      "contents": [
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "flexColumns": [
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": { "runs": [{ "text": "Etude Op. 10 No. 4" }] }
+                                }
+                              }
+                            ],
+                            "navigationEndpoint": {
+                              "watchEndpoint": { "videoId": "Hj69pQ0qSGY" }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "musicShelfRenderer": {
+                      "title": { "runs": [{ "text": "New releases" }] },
+                      "contents": [
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "flexColumns": [
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": { "runs": [{ "text": "Waltz in A minor" }] }
+                                }
+                              }
+                            ],
+                            "navigationEndpoint": {
+                              "watchEndpoint": { "videoId": "xnDp7jkIXJE" }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "continuations": [
+                  { "nextContinuationData": { "continuation": "tok_home_page2" } }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

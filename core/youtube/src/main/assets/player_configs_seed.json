@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "updatedAt": "2026-10-07T00:00:00Z",
+  "configs": {
+    "default": {
+      "sig": "pianostreamSig",
+      "nClass": "pianostreamN",
+      "sts": "20000",
+      "aliases": {}
+    }
+  }
+}
