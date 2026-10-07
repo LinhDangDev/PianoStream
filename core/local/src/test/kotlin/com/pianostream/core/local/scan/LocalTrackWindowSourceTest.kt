@@ -62,4 +62,40 @@ class LocalTrackWindowSourceTest {
         assertThat(LibraryHasher.mediaId("CD1", 0))
             .isEqualTo("pianostream://local/$a")
     }
+
+    @Test
+    fun single_row_index_resolves_and_null_endms_is_valid() {
+        // A "single" is a one-track disc at a file-shaped pseudo path; its
+        // StoredTrack.endMs may be null (unknown tag duration) and still
+        // produces a valid 0..EOF window (LocalTrackWindow allows null).
+        val single = LibraryDataAccess.StoredTrack(
+            trackNo = 1, startMs = 0, endMs = null, gainDb = null, peak = null,
+        )
+        val index = LocalLibraryIndex.buildIndex(
+            listOf(disc("Mix/song.mp3") to listOf(single)),
+        )
+        assertThat(index).hasSize(1)
+        val e = index.values.single()
+        assertThat(e.contentKey).isEqualTo(LibraryHasher.contentKey("Mix/song.mp3", 0))
+        assertThat(e.discKey).isEqualTo(LibraryHasher.discKey("Mix/song.mp3"))
+        assertThat(e.startMs).isEqualTo(0)
+        assertThat(e.endMs).isNull()
+
+        val w = com.pianostream.core.local.api.LocalTrackWindow(
+            contentKey = e.contentKey, flacUri = e.flacUri,
+            startMs = e.startMs, endMs = e.endMs,
+            gainDb = e.gainDb, peak = e.peak,
+        )
+        assertThat(w.endMs).isNull() // clipping 0..end — full file
+    }
+
+    @Test
+    fun single_paths_do_not_collide_with_folder_paths() {
+        // a single's pseudo path carries the filename, so it can't share a
+        // contentKey with the disc folder it lives in.
+        assertThat(LibraryHasher.contentKey("CD1", 0))
+            .isNotEqualTo(LibraryHasher.contentKey("CD1/bonus.mp3", 0))
+        assertThat(LibraryHasher.discKey("CD1"))
+            .isNotEqualTo(LibraryHasher.discKey("CD1/bonus.mp3"))
+    }
 }

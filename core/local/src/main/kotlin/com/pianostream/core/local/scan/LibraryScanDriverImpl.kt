@@ -8,6 +8,7 @@ import com.pianostream.core.data.library.model.ScanResult
 import com.pianostream.core.data.library.scan.LibraryScanDriver
 import com.pianostream.core.local.saf.ContentResolverSafSource
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,6 +26,13 @@ import javax.inject.Singleton
  * match AND `scanComplete` is set — the artwork term is what makes a
  * `Front.jpeg` dropped beside the cue/flac after the first scan
  * re-scannable.
+ *
+ * Loose-file singles persist as one disc + one track row each with
+ * `cueUri = null` (the single marker — no schema change). Embedded artwork
+ * is written to the shared `filesDir/artwork/<discKey>.jpg` slot that
+ * `LocalMediaItemFactory` reads, so singles get lockscreen art without a
+ * `content://` artwork document. The same fingerprint governs rescan, so a
+ * deleted file's disc row drops out through `deleteDiscsNotIn` like any disc.
  */
 @Singleton
 class LibraryScanDriverImpl @Inject constructor(
@@ -39,6 +47,7 @@ class LibraryScanDriverImpl @Inject constructor(
         val resolver = context.contentResolver
         val scanner = LibraryScanner(
             source = ContentResolverSafSource(resolver),
+            tagReader = MetadataRetrieverTagReader(resolver),
         ) { u -> resolver.openInputStream(Uri.parse(u)) }
 
         val previous = store.allDiscs().associateBy { it.docId }
@@ -49,7 +58,8 @@ class LibraryScanDriverImpl @Inject constructor(
         } catch (e: SecurityException) {
             return ScanResult(0, 0, 0, 0, grantLost = true)
         }
-        if (scan.discs.isEmpty() && previousCount > 0) {
+        val foundCount = scan.discs.size + scan.singles.size
+        if (foundCount == 0 && previousCount > 0) {
             return ScanResult(
                 0, 0, 0, 0,
                 warnings = listOf(
@@ -61,6 +71,7 @@ class LibraryScanDriverImpl @Inject constructor(
 
         val warnings = scan.warnings.toMutableList()
         val foundDocIds = scan.discs.mapTo(HashSet()) { it.docId }
+        scan.singles.mapTo(foundDocIds) { it.docId }
         var scanned = 0
         var trackTotal = 0
         var durationTotal = 0L
@@ -121,11 +132,65 @@ class LibraryScanDriverImpl @Inject constructor(
                 onProgress(ScanProgress(scanned, d.folderPath))
             }
         }
+
+        for (s in scan.singles) {
+            val prior = previous[s.docId]
+            if (prior == null || !unchangedSince(prior, s)) {
+                reParsed++
+                store.writeSingleDisc(
+                    existingId = prior?.id,
+                    disc = LibraryDataAccess.DiscWrite(
+                        docId = s.docId,
+                        treeUri = treeUri,
+                        folderPath = s.folderPath,
+                        title = s.album ?: s.title,
+                        performer = s.performer,
+                        composer = null,
+                        genre = s.genre,
+                        date = s.date,
+                        discId = null,
+                        discNumber = null,
+                        totalDiscs = null,
+                        // null cueUri = the single marker — never a real cue.
+                        cueUri = null,
+                        flacUri = s.audio.uri,
+                        logUri = null,
+                        artworkUri = s.artworkUri,
+                        albumGainDb = null,
+                        albumPeak = null,
+                        flacDurationMs = s.durationMs,
+                        flacSizeBytes = s.audio.size,
+                        flacLastModified = s.audio.lastModified,
+                    ),
+                    track = LibraryDataAccess.TrackWrite(
+                        indexInCue = 0,
+                        trackNo = 1,
+                        title = s.title,
+                        performer = s.performer,
+                        composer = null,
+                        startMs = 0,
+                        endMs = s.durationMs,
+                        pregapStartMs = null,
+                        gainDb = null,
+                        peak = null,
+                        isrc = null,
+                        flags = 0,
+                    ),
+                )
+            }
+            cacheEmbeddedArtwork(s)
+            scanned++
+            trackTotal += 1
+            durationTotal += s.durationMs ?: 0L
+            if (scanned % ScanPlan.REPORT_EVERY == 0) {
+                onProgress(ScanProgress(scanned, s.folderPath))
+            }
+        }
         onProgress(ScanProgress(scanned, null))
 
         // M2 — never delete on a shrinking scan: stale discs stay until the
         // user confirms (LibraryViewModel's confirm path wipes + rescans).
-        if (scan.discs.size >= previousCount) {
+        if (foundCount >= previousCount) {
             store.deleteDiscsNotIn(foundDocIds)
         }
 
@@ -138,20 +203,40 @@ class LibraryScanDriverImpl @Inject constructor(
         }
         val missingCount = store.reconcilePlayback(liveKeys)
 
-        if (scan.discs.size < previousCount) {
-            warnings += "expected $previousCount discs, found ${scan.discs.size} " +
+        if (foundCount < previousCount) {
+            warnings += "expected $previousCount discs, found $foundCount " +
                 "— stale rows kept pending confirmation"
         }
         if (reParsed > 0) {
             warnings += "$reParsed new/changed files since last scan"
         }
+        if (scan.singles.isNotEmpty()) {
+            warnings += "${scan.singles.size} loose files indexed as singles"
+        }
         return ScanResult(
-            discCount = scan.discs.size,
+            discCount = foundCount,
             trackCount = trackTotal,
             durationMs = durationTotal,
             missingCount = missingCount,
             warnings = warnings,
         )
+    }
+
+    /**
+     * Embedded-art write into the shared `filesDir/artwork/<discKey>.jpg`
+     * slot that `LocalMediaItemFactory.artworkBytesFor` reads — singles have
+     * no artwork document to stamp, so the cache is their only art source.
+     * Skipped when a folder JPEG exists: the fetch path then fills the slot
+     * with the resolved artwork instead (artworkUri wins over embedded art).
+     */
+    private fun cacheEmbeddedArtwork(s: LibraryScanner.SingleScan) {
+        val art = s.embeddedArt ?: return
+        if (s.artworkUri != null) return
+        runCatching {
+            val dir = File(context.filesDir, "artwork")
+            dir.mkdirs()
+            File(dir, "${LibraryHasher.discKey(s.folderPath)}.jpg").writeBytes(art)
+        }
     }
 
     companion object {
@@ -166,10 +251,23 @@ class LibraryScanDriverImpl @Inject constructor(
         internal fun unchangedSince(
             prior: LibraryDataAccess.StoredDisc,
             d: LibraryScanner.DiscScan,
+        ): Boolean = unchanged(prior, d.flac.size, d.flac.lastModified, d.artworkUri)
+
+        /** Same fingerprint for loose-file singles (audio doc identity). */
+        internal fun unchangedSince(
+            prior: LibraryDataAccess.StoredDisc,
+            s: LibraryScanner.SingleScan,
+        ): Boolean = unchanged(prior, s.audio.size, s.audio.lastModified, s.artworkUri)
+
+        private fun unchanged(
+            prior: LibraryDataAccess.StoredDisc,
+            flacSize: Long,
+            flacLastModified: Long,
+            artworkUri: String?,
         ): Boolean =
             prior.scanComplete &&
-                prior.flacSizeBytes == d.flac.size &&
-                prior.flacLastModified == d.flac.lastModified &&
-                prior.artworkUri == d.artworkUri
+                prior.flacSizeBytes == flacSize &&
+                prior.flacLastModified == flacLastModified &&
+                prior.artworkUri == artworkUri
     }
 }

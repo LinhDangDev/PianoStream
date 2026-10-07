@@ -161,4 +161,25 @@ class LocalMediaItemFactoryTest {
         val bytes = factory.artworkBytesFor("never", "content://definitely/not/here")
         assertThat(bytes).isNull()
     }
+
+    @Test
+    fun scan_written_cache_serves_when_no_artwork_document() = runTest {
+        // Singles: the scan writes embedded art to <discKey>.jpg and the disc's
+        // artworkUri stays null — build() must still surface artworkData.
+        val art = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 7, 8, 9)
+        artworkDir.mkdirs()
+        File(artworkDir, "singleKey.jpg").writeBytes(art)
+
+        val item = factory.build(
+            window(), "singleKey", null, null, "Song", "Artist", 60_000,
+        )
+        assertThat(item.mediaMetadata.artworkData).isEqualTo(art)
+        assertThat(item.mediaMetadata.artworkUri).isNull()
+    }
+
+    @Test
+    fun null_artwork_document_without_cache_is_null() = runTest {
+        val bytes = factory.artworkBytesFor("nothing", null)
+        assertThat(bytes).isNull()
+    }
 }

@@ -89,7 +89,9 @@ class LocalMediaItemFactory(
             window.peak?.let { putDouble(EXTRA_PEAK, it) }
         }
 
-        val artworkBytes = artworkDocumentUri?.let { artworkBytesFor(discId, it) }
+        // Cache-first even without an artwork document: the library scan writes
+        // a single's embedded art into this slot (no content:// art exists).
+        val artworkBytes = artworkBytesFor(discId, artworkDocumentUri)
 
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
@@ -114,12 +116,15 @@ class LocalMediaItemFactory(
 
     /**
      * E3 — per-disc artwork-byte cache under `filesDir/artwork/`. Returns the
-     * decoded-and-recoded JPEG bytes, or null when unreadable.
+     * decoded-and-recoded JPEG bytes, or null when unreadable. [documentUri]
+     * may be null (a single whose only art is the scan-written embedded-art
+     * cache entry): cache hit still serves, null + no cache → null.
      */
-    internal suspend fun artworkBytesFor(discId: String, documentUri: String): ByteArray? =
+    internal suspend fun artworkBytesFor(discId: String, documentUri: String?): ByteArray? =
         artworkMutex.withLock {
             val cached = File(artworkDir, "$discId.jpg")
             if (cached.exists()) return@withLock cached.readBytes()
+            if (documentUri == null) return@withLock null
             val bytes = runCatching {
                 context.contentResolver.openInputStream(Uri.parse(documentUri))
                     ?.use { it.readBytes() }

@@ -18,10 +18,18 @@ import java.security.MessageDigest
  * pure SAF+cue logic so the hostile-input suite runs fully in JVM tests.
  *
  * `SafDocumentSource` supplies folder children; `openRead(uri)` is the
- * ContentResolver seam (≤1 MiB enforced by the caller's `size` guard).
+ * ContentResolver seam (≤1 MiB enforced by the caller's `size` guard);
+ * `tagReader` is the MediaMetadataRetriever seam for loose-file singles.
+ *
+ * Singles: any audio doc (`AUDIO` or `FLAC` kind) in a scanned folder that is
+ * not named by a `.cue` `FILE` entry becomes a [SingleScan] — folders without
+ * a cue, the picked root's own loose files, and orphan audio sitting beside a
+ * cue disc. Disc folders still stop descending at the `.cue` — singles are
+ * collected from the folder's own doc list, never from deeper subtrees.
  */
 class LibraryScanner(
     private val source: SafDocumentSource,
+    private val tagReader: AudioTagReader = AudioTagReader { null },
     private val openRead: suspend (uri: String) -> java.io.InputStream?,
 ) {
 
@@ -40,8 +48,30 @@ class LibraryScanner(
         val warnings: List<String>,
     )
 
+    /**
+     * One loose audio file as a synthesized single-track "disc". [folderPath]
+     * is the pseudo path `"<parent>/<filename>"` — unique per file, stable
+     * across rescans, and feeds `LibraryHasher.contentKey`/`discKey` exactly
+     * like a real disc folder. [docId] is the file's own SAF document id.
+     */
+    data class SingleScan(
+        val folderPath: String,
+        val docId: String,
+        val audio: SafDocument,
+        val artworkUri: String?,
+        val title: String,
+        val performer: String?,
+        val album: String?,
+        val genre: String?,
+        val date: String?,
+        val durationMs: Long?,
+        /** Embedded picture bytes; the driver writes them to the artwork cache. */
+        val embeddedArt: ByteArray?,
+    )
+
     data class TreeScan(
         val discs: List<DiscScan>,
+        val singles: List<SingleScan>,
         val jpegCount: Int,
         val oversizeSkipped: Int,
         val nonAudioFiles: Int,
@@ -54,12 +84,15 @@ class LibraryScanner(
      * Walks [treeUri]: depth-bounded, content-driven descent, prunes
      * non-audio, collects jpeg counts; per disc folder picks the single
      * `.cue` + sibling `FILE` flac, parses, reads STREAMINFO, resolves
-     * artwork. First `SecurityException` aborts (M2 — rethrown so the
-     * repository can keep previous rows and report `grantLost`).
+     * artwork. Loose audio (not referenced by any cue `FILE`) becomes
+     * singles — including files sitting at the picked root itself.
+     * First `SecurityException` aborts (M2 — rethrown so the repository
+     * can keep previous rows and report `grantLost`).
      */
     suspend fun scan(treeUri: Uri): TreeScan = walkMutex.withLock {
         val warnings = ArrayList<String>()
         val discs = ArrayList<DiscScan>()
+        val singles = ArrayList<SingleScan>()
         var jpegs = 0
         var oversize = 0
         var nonAudio = 0
@@ -79,10 +112,11 @@ class LibraryScanner(
             nonAudio += docs.count { it.kind == SafDocumentKind.OTHER }
             val cues = docs.filter { it.kind == SafDocumentKind.CUE }
             if (ScanPlan.isDiscFolder(cues.isNotEmpty())) {
-                scanDiscFolder(treeUri, path, parentDocId, docs, cues.first(),
-                    rootDocs, warnings)?.let { discs += it }
+                scanDiscFolder(path, parentDocId, docs, cues,
+                    rootDocs, warnings, singles)?.let { discs += it }
                 return // content-driven stop: no descent inside a disc folder
             }
+            collectSingles(path, docs, referenced = emptySet(), rootDocs, singles)
             if (!ScanPlan.canDescend(depth)) {
                 if (docs.any { it.kind == SafDocumentKind.FOLDER }) {
                     warnings += "depth bound reached at $path"
@@ -104,33 +138,126 @@ class LibraryScanner(
         // the root itself may also hold a .cue (picked directly on a disc).
         val rootCues = rootDocs.filter { it.kind == SafDocumentKind.CUE }
         if (rootCues.isNotEmpty()) {
-            scanDiscFolder(treeUri, "", rootDocId, rootDocs, rootCues.first(),
-                rootDocs, warnings)?.let { discs += it }
+            scanDiscFolder("", rootDocId, rootDocs, rootCues,
+                rootDocs, warnings, singles)?.let { discs += it }
+        } else {
+            // root-level loose audio files are singles too.
+            collectSingles("", rootDocs, referenced = emptySet(), rootDocs, singles)
         }
 
         val compact = ArrayList<DiscScan>()
         for (d in discs) compact += d
         oversize = warnings.count { it.contains("oversize") }
-        TreeScan(compact, jpegs, oversize, nonAudio, warnings)
+        TreeScan(compact, singles, jpegs, oversize, nonAudio, warnings)
+    }
+
+    /**
+     * Singles inside a disc folder: every cue's FILE name (the primary
+     * [sheet]'s plus any secondary cue that still parses) stays bound to a
+     * disc — only audio docs NOT referenced by any cue FILE entry become
+     * singles (orphan flac/mp3/wav). Runs even when the primary cue is
+     * unreadable: an unparseable cue references nothing, so all the folder's
+     * audio drops into the singles pool.
+     */
+    private suspend fun collectSinglesForDiscFolder(
+        path: String,
+        docs: List<SafDocument>,
+        cues: List<SafDocument>,
+        sheet: CueSheet?,
+        rootDocs: List<SafDocument>,
+        out: MutableList<SingleScan>,
+    ) {
+        val referenced = HashSet<String>()
+        sheet?.fileName?.lowercase()?.let { referenced += it }
+        for (extraCue in cues.drop(1)) {
+            if (extraCue.size > ScanPlan.MAX_READ_BYTES) continue
+            val bytes = openRead(extraCue.uri)?.use { it.readBytes() } ?: continue
+            try {
+                referenced += CueParser.parse(bytes, path).fileName.lowercase()
+            } catch (e: Exception) {
+                // secondary sheets are consulted for FILE names only — the
+                // primary cue's diagnostics already cover parse failures.
+            }
+        }
+        collectSingles(path, docs, referenced, rootDocs, out)
+    }
+
+    /** Every audio doc not named (case-insensitively) in [referenced] is a single. */
+    private suspend fun collectSingles(
+        path: String,
+        docs: List<SafDocument>,
+        referenced: Set<String>,
+        rootDocs: List<SafDocument>,
+        out: MutableList<SingleScan>,
+    ) {
+        // one folder JPEG covers every loose file in the folder.
+        val artworkUri = ArtworkResolver.resolve(docs, rootDocs)
+        for (doc in docs) {
+            if (doc.kind != SafDocumentKind.AUDIO && doc.kind != SafDocumentKind.FLAC) continue
+            if (doc.displayName.lowercase() in referenced) continue
+            out += scanSingle(path, artworkUri, doc)
+        }
+    }
+
+    /**
+     * Loose doc → single-track disc metadata: tags via [tagReader], fallbacks
+     * title = filename stem and album = parent folder name; FLAC duration is
+     * read from STREAMINFO first (container truth, no tag dependency), tag
+     * duration next. Artwork = the folder JPEG resolved by the caller else
+     * null (the UI shows the vinyl placeholder; embedded art travels in
+     * [SingleScan.embeddedArt] for the cache write).
+     */
+    private suspend fun scanSingle(
+        path: String,
+        artworkUri: String?,
+        doc: SafDocument,
+    ): SingleScan {
+        val tags = tagReader.read(doc.uri)
+        val stem = doc.displayName.substringBeforeLast('.')
+        val title = tags?.title?.takeIf { it.isNotBlank() } ?: stem
+        val parentName = path.substringAfterLast('/').ifBlank { null }
+        val streamInfoDuration = if (doc.kind == SafDocumentKind.FLAC) {
+            openRead(doc.uri)?.use { FlacHeaderReader.readStreamInfo(it)?.durationMs }
+        } else {
+            null
+        }
+        return SingleScan(
+            folderPath = listOf(path, doc.displayName)
+                .filter { it.isNotEmpty() }
+                .joinToString("/"),
+            docId = doc.docId,
+            audio = doc,
+            artworkUri = artworkUri,
+            title = title,
+            performer = tags?.artist?.takeIf { it.isNotBlank() },
+            album = tags?.album?.takeIf { it.isNotBlank() } ?: parentName,
+            genre = tags?.genre?.takeIf { it.isNotBlank() },
+            date = tags?.date?.takeIf { it.isNotBlank() },
+            durationMs = streamInfoDuration?.takeIf { it > 0 } ?: tags?.durationMs,
+            embeddedArt = tags?.embeddedArt,
+        )
     }
 
     private suspend fun scanDiscFolder(
-        treeUri: Uri,
         path: String,
         docId: String,
         docs: List<SafDocument>,
-        cue: SafDocument,
+        cues: List<SafDocument>,
         rootDocs: List<SafDocument>,
         warnings: MutableList<String>,
+        singles: MutableList<SingleScan>,
     ): DiscScan? {
         val w = warnings
+        val cue = cues.first()
         if (cue.size > ScanPlan.MAX_READ_BYTES) {
             w += "$path: cue oversize ${cue.size}B — skipped"
+            collectSinglesForDiscFolder(path, docs, cues, null, rootDocs, singles)
             return null
         }
         val cueBytes = openRead(cue.uri)?.use { it.readBytes() }
             ?: run {
                 w += "$path: cue unreadable"
+                collectSinglesForDiscFolder(path, docs, cues, null, rootDocs, singles)
                 return null
             }
         val cueHash = sha256Hex(cueBytes)
@@ -143,13 +270,14 @@ class LibraryScanner(
         // FILE target must be a sibling document of the same folder —
         // '..', '/', '\\' and absolute/foreign paths are rejected before
         // any read (CC7/CC11): a valid name equals a displayName exactly.
+        // Any audio kind matches: a cue may target wav/mp3, not only flac.
         val wanted = sheet?.fileName
         val fileOk = wanted != null &&
             !wanted.contains('/') && !wanted.contains('\\') &&
             !wanted.contains("..")
         val flac = if (fileOk) {
             docs.firstOrNull {
-                it.kind == SafDocumentKind.FLAC &&
+                (it.kind == SafDocumentKind.FLAC || it.kind == SafDocumentKind.AUDIO) &&
                     it.displayName.equals(wanted, ignoreCase = true)
             } ?: run {
                 w += "$path: FILE \"${sheet?.fileName}\" not a sibling document"
@@ -159,6 +287,7 @@ class LibraryScanner(
             if (wanted != null) w += "$path: FILE \"$wanted\" escapes disc folder"
             null
         }
+        collectSinglesForDiscFolder(path, docs, cues, sheet, rootDocs, singles)
         val log = docs.firstOrNull { it.kind == SafDocumentKind.LOG }
         if (log != null && log.size > ScanPlan.MAX_READ_BYTES) {
             w += "$path: log oversize ${log.size}B"
@@ -166,6 +295,7 @@ class LibraryScanner(
         val artwork = ArtworkResolver.resolve(docs, rootDocs)
         val flacDuration = flac?.let { f ->
             openRead(f.uri)?.use { FlacHeaderReader.readStreamInfo(it)?.durationMs }
+                ?: tagReader.read(f.uri)?.durationMs
                 ?: run {
                     w += "$path: unreadable STREAMINFO"
                     null

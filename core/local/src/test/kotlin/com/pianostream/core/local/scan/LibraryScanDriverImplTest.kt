@@ -105,4 +105,57 @@ class LibraryScanDriverImplTest {
             ),
         ).isFalse()
     }
+
+    private fun single(
+        artworkUri: String?,
+        size: Long = 100,
+        mtime: Long = 1000,
+    ) = LibraryScanner.SingleScan(
+        folderPath = "Mix/song.mp3", docId = "s1",
+        audio = doc("song.mp3", SafDocumentKind.AUDIO, size, mtime),
+        artworkUri = artworkUri,
+        title = "song", performer = null, album = "Mix",
+        genre = null, date = null, durationMs = 60_000, embeddedArt = null,
+    )
+
+    @Test
+    fun single_identical_fingerprint_skips_write() {
+        assertThat(
+            LibraryScanDriverImpl.unchangedSince(
+                stored("content://x/Front.jpeg"), single("content://x/Front.jpeg"),
+            ),
+        ).isTrue()
+        assertThat(
+            LibraryScanDriverImpl.unchangedSince(stored(null), single(null)),
+        ).isTrue()
+    }
+
+    @Test
+    fun single_artwork_or_file_change_reparses() {
+        // folder JPEG appears/disappears after first scan → rewrite (artwork
+        // term of the fingerprint mirrors the disc behavior).
+        assertThat(
+            LibraryScanDriverImpl.unchangedSince(
+                stored(null), single("content://x/Front.jpeg"),
+            ),
+        ).isFalse()
+        assertThat(
+            LibraryScanDriverImpl.unchangedSince(
+                stored("content://x/a"), single("content://x/b"),
+            ),
+        ).isFalse()
+        // file replaced (size or mtime differs) → rewrite.
+        assertThat(
+            LibraryScanDriverImpl.unchangedSince(stored(null), single(null, size = 101)),
+        ).isFalse()
+        assertThat(
+            LibraryScanDriverImpl.unchangedSince(stored(null), single(null, mtime = 2000)),
+        ).isFalse()
+        // incomplete prior row always rewrites.
+        assertThat(
+            LibraryScanDriverImpl.unchangedSince(
+                stored(null, scanComplete = false), single(null),
+            ),
+        ).isFalse()
+    }
 }

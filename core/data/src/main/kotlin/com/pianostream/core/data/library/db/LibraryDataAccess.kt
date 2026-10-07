@@ -101,6 +101,26 @@ class LibraryDataAccess @Inject constructor(
         cueUri: String,
         cueContentHash: String,
         parserVersion: Int,
+    ): Long = writeDiscRows(existingId, disc, tracks, cueUri, cueContentHash, parserVersion)
+
+    /**
+     * A loose audio file persisted as a single-track disc ("single"). There is
+     * no cue sheet: `cue_sheets_raw` gets no row and `discs.cueUri` stays null
+     * — **null `cueUri` is the single marker** (no schema change needed).
+     */
+    suspend fun writeSingleDisc(
+        existingId: Long?,
+        disc: DiscWrite,
+        track: TrackWrite,
+    ): Long = writeDiscRows(existingId, disc, listOf(track), null, "", 0)
+
+    private suspend fun writeDiscRows(
+        existingId: Long?,
+        disc: DiscWrite,
+        tracks: List<TrackWrite>,
+        cueUri: String?,
+        cueContentHash: String,
+        parserVersion: Int,
     ): Long = db.withTransaction {
         val discId = db.discDao().upsert(
             DiscEntity(
@@ -141,13 +161,15 @@ class LibraryDataAccess @Inject constructor(
                 )
             },
         )
-        db.cueSheetRawDao().upsert(
-            CueSheetRawEntity(
-                discId = discId, uri = cueUri,
-                contentHash = cueContentHash, parserVersion = parserVersion,
-                parsedAt = System.currentTimeMillis(),
-            ),
-        )
+        if (cueUri != null) {
+            db.cueSheetRawDao().upsert(
+                CueSheetRawEntity(
+                    discId = discId, uri = cueUri,
+                    contentHash = cueContentHash, parserVersion = parserVersion,
+                    parsedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
         discId
     }
 

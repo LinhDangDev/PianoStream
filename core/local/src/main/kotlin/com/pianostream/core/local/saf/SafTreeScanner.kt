@@ -56,6 +56,13 @@ class ContentResolverSafSource(
     }
 
     companion object {
+        /**
+         * Loose audio extensions (singles) — `.flac` excluded on purpose: it
+         * keeps its own [SafDocumentKind.FLAC] kind so cue `FILE` targets keep
+         * matching as before. Both kinds feed the singles pool at scan time.
+         */
+        val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "aac", "wav", "ogg", "opus", "wma")
+
         /** MIME/extension agreement classification (F20 — disagreement → OTHER). */
         fun classify(displayName: String, mimeType: String): SafDocumentKind {
             val ext = displayName.substringAfterLast('.', "").lowercase()
@@ -70,6 +77,10 @@ class ContentResolverSafSource(
                 "flac" -> if (mime.startsWith("audio/") || mime == "application/octet-stream" ||
                     mime.isEmpty()
                 ) SafDocumentKind.FLAC else SafDocumentKind.OTHER
+                in AUDIO_EXTENSIONS -> if (
+                    mime.startsWith("audio/") || mime == "application/octet-stream" ||
+                    mime.isEmpty()
+                ) SafDocumentKind.AUDIO else SafDocumentKind.OTHER
                 "log" -> if (mime.startsWith("text/") || mime == "application/octet-stream" ||
                     mime.isEmpty()
                 ) SafDocumentKind.LOG else SafDocumentKind.OTHER
