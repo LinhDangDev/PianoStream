@@ -3,8 +3,10 @@ package com.pianostream.feature.player
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -91,6 +93,7 @@ import com.pianostream.core.designsystem.component.PlaybackErrorState
 import com.pianostream.core.designsystem.component.formatDuration
 import com.pianostream.core.designsystem.theme.Aurora
 import kotlin.math.roundToInt
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -127,6 +130,21 @@ fun ExpandingPlayer(
     var queueOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val artworkRotation = remember { Animatable(0f) }
+
+    LaunchedEffect(state.isPlaying) {
+        if (state.isPlaying) {
+            while (isActive) {
+                artworkRotation.animateTo(
+                    artworkRotation.value + 360f,
+                    animationSpec = tween(
+                        durationMillis = 12_000,
+                        easing = LinearEasing,
+                    ),
+                )
+            }
+        }
+    }
 
     BackHandler(enabled = expanded) { onExpandedChange(false) }
 
@@ -383,7 +401,13 @@ fun ExpandingPlayer(
                         }
                         .size(discSizeDp),
                 ) {
-                    ArtworkBox(artwork, title, Modifier.fillMaxSize(), 0, circle = true)
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { rotationZ = artworkRotation.value },
+                    ) {
+                        ArtworkBox(artwork, title, Modifier.fillMaxSize(), 0, circle = true)
+                    }
                 }
 
                 // ---- expanded content ----
