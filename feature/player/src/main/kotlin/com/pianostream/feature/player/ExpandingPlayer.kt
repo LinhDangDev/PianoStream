@@ -1,6 +1,5 @@
 package com.pianostream.feature.player
 
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -65,10 +64,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -83,6 +82,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -138,7 +138,7 @@ fun ExpandingPlayer(
                 artworkRotation.animateTo(
                     artworkRotation.value + 360f,
                     animationSpec = tween(
-                        durationMillis = 12_000,
+                        durationMillis = Vinyl.RPM_MS,
                         easing = LinearEasing,
                     ),
                 )
@@ -179,19 +179,25 @@ fun ExpandingPlayer(
         if (swipeLimit <= 0f) return@BoxWithConstraints
 
         val cornerDp = lerp(24f, 0f, fraction).dp
-        val bg = lerp(Aurora.GlassStrong, Aurora.BgDeep, fraction)
+        val bg = lerp(Aurora.GlassStrong, Vinyl.BgBottom, fraction)
 
-        // Morphing-artwork geometry — computed in BoxWithConstraints scope
+        // Morphing-label geometry — computed in BoxWithConstraints scope
         // (reading `constraints` inside the player Box's content is a
-        // DSL-scope violation).
+        // DSL-scope violation). The dock's mini-record label flies to the
+        // centre of the turntable record.
         val containerWidthPx = constraints.maxWidth.toFloat()
-        val miniSize = 38.dp
-        val discSizeDp = with(density) { containerWidthPx.toDp() } * 0.78f
-        val miniX = with(density) { 8.dp.toPx() }
-        val miniY = with(density) { 7.dp.toPx() }
-        val fullX = (containerWidthPx - with(density) { discSizeDp.toPx() }) / 2f
-        val fullY = with(density) { 96.dp.toPx() }
-        val shrink = miniSize.value / discSizeDp.value
+        val containerWidthDp = with(density) { containerWidthPx.toDp() }
+        val statusPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val tableSize = containerWidthDp - TableMargin * 2
+        val labelSizeDp = tableSize * (Vinyl.RECORD_RATIO * Vinyl.LABEL_RATIO)
+        val miniSize = MiniDisc * Vinyl.MINI_LABEL_RATIO
+        val miniX = with(density) { (8.dp + (MiniDisc - miniSize) / 2f).toPx() }
+        val miniY = with(density) { (7.dp + (MiniDisc - miniSize) / 2f).toPx() }
+        val fullX = with(density) { ((containerWidthDp - labelSizeDp) / 2f).toPx() }
+        val fullY = with(density) {
+            (statusPad + TopBarHeight + TableTopGap + (tableSize - labelSizeDp) / 2f).toPx()
+        }
+        val shrink = miniSize.value / labelSizeDp.value
 
         Box(
             modifier = Modifier
@@ -259,33 +265,14 @@ fun ExpandingPlayer(
             CompositionLocalProvider(
                 androidx.compose.material3.LocalContentColor provides Aurora.TextPrimary,
             ) {
-                // Blurred artwork backdrop (API 31+) — declared first so it
-                // sits below the morphing artwork and the controls.
-                if (Build.VERSION.SDK_INT >= 31 && expandedAlpha > 0f) {
+                // Charcoal backdrop of the turntable view.
+                if (expandedAlpha > 0f) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = expandedAlpha },
-                    ) {
-                        if (artwork != null) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(artwork)
-                                    .build(),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .blur(70.dp)
-                                    .graphicsLayer { scaleX = 1.5f; scaleY = 1.5f },
-                            )
-                        }
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.6f)),
-                        )
-                    }
+                            .graphicsLayer { alpha = expandedAlpha }
+                            .background(Brush.verticalGradient(listOf(Vinyl.BgTop, Vinyl.BgBottom))),
+                    )
                 }
 
                 // ---- collapsed dock row (Spotify Connect mini: circle thumb,
@@ -303,14 +290,14 @@ fun ExpandingPlayer(
                                 .fillMaxSize()
                                 .padding(start = 8.dp, end = 8.dp),
                         ) {
-                            ArtworkBox(artwork, title, Modifier.size(38.dp), 0, circle = true)
+                            MiniVinyl(artwork, title, { artworkRotation.value }, Modifier.size(MiniDisc))
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Aurora.Accent,
+                                    color = Vinyl.Gold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -363,7 +350,7 @@ fun ExpandingPlayer(
                                 .padding(horizontal = 10.dp)
                                 .height(2.dp)
                                 .clip(RoundedCornerShape(1.dp))
-                                .background(Aurora.Accent.copy(alpha = 0.2f)),
+                                .background(Vinyl.Gold.copy(alpha = 0.2f)),
                         ) {
                             Box(
                                 Modifier
@@ -374,13 +361,186 @@ fun ExpandingPlayer(
                                                 .coerceIn(0f, 1f)
                                         } else 0f,
                                     )
-                                    .background(Aurora.Accent),
+                                    .background(Vinyl.Gold),
                             )
                         }
                     }
                 }
 
-                // ---- morphing artwork (mini thumb -> large artwork) ----
+                // ---- expanded turntable view ----
+                if (fraction > 0.05f) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                            .graphicsLayer {
+                                alpha = expandedAlpha
+                                translationY = if (fraction < 0.2f) 10000f else 0f
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(TopBarHeight)
+                                .padding(horizontal = TableMargin),
+                        ) {
+                            NeuButton(
+                                icon = Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "Collapse player",
+                                onClick = { onExpandedChange(false) },
+                                size = 40.dp,
+                                iconSize = 22.dp,
+                            )
+                            Text(
+                                "Playing now",
+                                color = Vinyl.Gold,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.weight(1f),
+                            )
+                            val repeatOn = state.repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF
+                            NeuButton(
+                                icon = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) {
+                                    Icons.Filled.RepeatOne
+                                } else Icons.Filled.Repeat,
+                                contentDescription = "Repeat mode",
+                                onClick = viewModel::cycleRepeat,
+                                size = 40.dp,
+                                iconSize = 20.dp,
+                                tint = if (repeatOn) Vinyl.Gold else Vinyl.GoldDim,
+                            )
+                        }
+
+                        Spacer(Modifier.height(TableTopGap))
+                        Turntable(
+                            rotation = { artworkRotation.value },
+                            playing = state.isPlaying,
+                            modifier = Modifier.size(tableSize),
+                        )
+
+                        // Side buttons tuck into the platter's lower corners;
+                        // title/artist centred between them (per reference).
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = TableMargin)
+                                .offset(y = (-26).dp),
+                        ) {
+                            NeuButton(
+                                icon = Icons.Filled.Shuffle,
+                                contentDescription = if (state.shuffle) "Shuffle on" else "Shuffle off",
+                                onClick = viewModel::toggleShuffle,
+                                size = 46.dp,
+                                iconSize = 20.dp,
+                                tint = if (state.shuffle) Vinyl.Gold else Vinyl.GoldDim,
+                                modifier = Modifier.align(Alignment.TopStart),
+                            )
+                            NeuButton(
+                                icon = Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = "Open play queue",
+                                onClick = { queueOpen = true },
+                                size = 46.dp,
+                                iconSize = 22.dp,
+                                tint = Vinyl.GoldDim,
+                                modifier = Modifier.align(Alignment.TopEnd),
+                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 48.dp, start = 8.dp, end = 8.dp),
+                            ) {
+                                Text(
+                                    title,
+                                    color = Vinyl.Gold,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    artist.ifBlank { "Unknown artist" },
+                                    color = Vinyl.GoldDim,
+                                    fontSize = 16.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+
+                        state.error?.let {
+                            PlaybackErrorState(message = it, onRetry = viewModel::retryCurrent)
+                        }
+
+                        Spacer(Modifier.weight(1f))
+
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 26.dp)) {
+                            GoldSlider(
+                                fraction = if (state.durationMs > 0) {
+                                    (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
+                                } else 0f,
+                                onChange = {
+                                    if (state.durationMs > 0) {
+                                        viewModel.seekTo((it * state.durationMs).toLong())
+                                    }
+                                },
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            ) {
+                                Text(formatDuration(state.positionMs), color = Vinyl.GoldDim, fontSize = 12.sp)
+                                Text(formatDuration(state.durationMs), color = Vinyl.GoldDim, fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(Modifier.weight(1f))
+
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 30.dp),
+                        ) {
+                            NeuButton(
+                                icon = Icons.Filled.SkipPrevious,
+                                contentDescription = "Previous track",
+                                onClick = viewModel::previous,
+                                size = 58.dp,
+                                iconSize = 26.dp,
+                            )
+                            NeuButton(
+                                icon = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (state.isPlaying) "Pause" else "Play",
+                                onClick = viewModel::playPause,
+                                size = 80.dp,
+                                iconSize = 34.dp,
+                                tint = Vinyl.Gold,
+                                ring = true,
+                            )
+                            NeuButton(
+                                icon = Icons.Filled.SkipNext,
+                                contentDescription = "Next track",
+                                onClick = viewModel::next,
+                                size = 58.dp,
+                                iconSize = 26.dp,
+                            )
+                        }
+
+                        Spacer(Modifier.height(28.dp))
+                    }
+                }
+
+                // ---- morphing label (mini record label -> turntable label) ----
+                // Declared last so it sits on top of the record it lands on.
                 Box(
                     modifier = Modifier
                         .offset {
@@ -394,219 +554,19 @@ fun ExpandingPlayer(
                             scaleX = s
                             scaleY = s
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                            clip = true
-                            shape = CircleShape // vinyl-circle artwork
-                            shadowElevation = with(density) { lerp(0f, 24f, fraction).dp.toPx() }
                             alpha = fraction
                         }
-                        .size(discSizeDp),
+                        .size(labelSizeDp),
                 ) {
-                    Box(
+                    // Spin about the label's own centre (the outer layer
+                    // scales from its top-left corner).
+                    VinylLabel(
+                        artwork,
+                        title,
                         Modifier
                             .fillMaxSize()
                             .graphicsLayer { rotationZ = artworkRotation.value },
-                    ) {
-                        ArtworkBox(artwork, title, Modifier.fillMaxSize(), 0, circle = true)
-                    }
-                }
-
-                // ---- expanded content ----
-                if (fraction > 0.05f) {
-                    val statusPad = WindowInsets.statusBars
-                        .asPaddingValues()
-                        .calculateTopPadding()
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding()
-                            .navigationBarsPadding()
-                            .graphicsLayer {
-                                alpha = expandedAlpha
-                                translationY = if (fraction < 0.2f) 10000f else 0f
-                            },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        // Grabber + collapse chevron.
-                        Box(Modifier.fillMaxWidth().height(40.dp)) {
-                            IconButton(
-                                onClick = { onExpandedChange(false) },
-                                modifier = Modifier.align(Alignment.CenterStart),
-                            ) {
-                                Icon(
-                                    Icons.Filled.KeyboardArrowDown,
-                                    contentDescription = "Collapse player",
-                                    tint = Aurora.TextSecondary,
-                                )
-                            }
-                            Box(
-                                Modifier
-                                    .align(Alignment.Center)
-                                    .size(36.dp, 5.dp)
-                                    .background(Color.White.copy(alpha = 0.3f), CircleShape),
-                            )
-                        }
-
-                        // Artwork region the morphing circle lands in, with the
-                        // seek bar + times overlaid on its bottom edge (per
-                        // the reference: bar sits ON the circle, times flank it).
-                        val artMarginDp =
-                            (with(density) { containerWidthPx.toDp() } - discSizeDp) / 2f
-                        // Region bottom must land on the circle's bottom edge:
-                        // subtract the status-bar + grabber heights above it.
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(
-                                    with(density) { fullY.toDp() } + discSizeDp
-                                        - statusPad - 40.dp,
-                                ),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = artMarginDp - 8.dp),
-                            ) {
-                                Text(
-                                    formatDuration(state.positionMs),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Aurora.TextPrimary.copy(alpha = 0.9f),
-                                )
-                                ThinTrackBar(
-                                    fraction = if (state.durationMs > 0) {
-                                        (state.positionMs.toFloat() / state.durationMs)
-                                            .coerceIn(0f, 1f)
-                                    } else 0f,
-                                    onChange = {
-                                        if (state.durationMs > 0) {
-                                            viewModel.seekTo((it * state.durationMs).toLong())
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(horizontal = 10.dp),
-                                )
-                                Text(
-                                    formatDuration(state.durationMs),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Aurora.TextPrimary.copy(alpha = 0.9f),
-                                )
-                            }
-                        }
-
-                        state.error?.let {
-                            PlaybackErrorState(message = it, onRetry = viewModel::retryCurrent)
-                        }
-
-                        Spacer(Modifier.weight(1f))
-
-                        // Frosted control card: accent title + artist | prev/next
-                        // | white round play button (per reference).
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .clip(RoundedCornerShape(22.dp))
-                                .background(Aurora.Glass)
-                                .border(0.5.dp, Aurora.Hairline, RoundedCornerShape(22.dp))
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Aurora.Accent,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    artist.ifBlank { "Unknown artist" },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Aurora.TextSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            IconButton(onClick = viewModel::previous, modifier = Modifier.size(38.dp)) {
-                                Icon(
-                                    Icons.Filled.SkipPrevious,
-                                    contentDescription = "Previous track",
-                                    tint = Aurora.TextPrimary.copy(alpha = 0.75f),
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
-                            IconButton(onClick = viewModel::next, modifier = Modifier.size(38.dp)) {
-                                Icon(
-                                    Icons.Filled.SkipNext,
-                                    contentDescription = "Next track",
-                                    tint = Aurora.TextPrimary.copy(alpha = 0.75f),
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
-                            IconButton(
-                                onClick = viewModel::playPause,
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .background(Color.White, CircleShape),
-                            ) {
-                                Icon(
-                                    if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(28.dp),
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(10.dp))
-
-                        // Bottom row: shuffle / queue / repeat.
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 40.dp),
-                        ) {
-                            IconButton(onClick = viewModel::toggleShuffle) {
-                                Icon(
-                                    Icons.Filled.Shuffle,
-                                    contentDescription = if (state.shuffle) "Shuffle on" else "Shuffle off",
-                                    tint = if (state.shuffle) {
-                                        Aurora.Accent
-                                    } else Aurora.TextPrimary.copy(alpha = 0.75f),
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
-                            IconButton(onClick = { queueOpen = true }) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.QueueMusic,
-                                    contentDescription = "Open play queue",
-                                    tint = Aurora.TextPrimary.copy(alpha = 0.75f),
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
-                            IconButton(onClick = viewModel::cycleRepeat) {
-                                Icon(
-                                    when (state.repeatMode) {
-                                        androidx.media3.common.Player.REPEAT_MODE_ONE ->
-                                            Icons.Filled.RepeatOne
-                                        else -> Icons.Filled.Repeat
-                                    },
-                                    contentDescription = "Repeat mode",
-                                    tint = if (state.repeatMode !=
-                                        androidx.media3.common.Player.REPEAT_MODE_OFF
-                                    ) Aurora.Accent else Aurora.TextPrimary.copy(alpha = 0.75f),
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-                    }
+                    )
                 }
             }
         }
@@ -622,84 +582,7 @@ fun ExpandingPlayer(
     }
 }
 
-/** Artwork with a glass placeholder (music note) when the URI sanitizes to null. */
-@Composable
-private fun ArtworkBox(
-    artworkUri: String?,
-    title: String,
-    modifier: Modifier = Modifier,
-    corner: Int,
-    circle: Boolean = false,
-) {
-    val shape = if (circle) CircleShape else RoundedCornerShape(corner.dp)
-    Box(modifier.clip(shape).background(Aurora.SurfaceLight)) {
-        if (artworkUri != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(artworkUri)
-                    .build(),
-                contentDescription = "Artwork for $title",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Icon(
-                Icons.Filled.MusicNote,
-                contentDescription = null,
-                tint = Aurora.TextSecondary,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxSize(0.5f),
-            )
-        }
-    }
-}
-
-/** Apple's thin progress slider (ported from Melody, ported from Cue, MIT):
- *  3.5dp white track + small knob, tap or drag to seek. */
-@Composable
-private fun ThinTrackBar(
-    fraction: Float,
-    onChange: (Float) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(modifier.height(28.dp)) {
-        androidx.compose.foundation.Canvas(
-            Modifier
-                .fillMaxWidth()
-                .height(3.5.dp)
-                .align(Alignment.Center)
-                .pointerInput(Unit) {
-                    detectTapGestures { o -> onChange((o.x / size.width).coerceIn(0f, 1f)) }
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures { change, _ ->
-                        change.consume()
-                        onChange((change.position.x / size.width).coerceIn(0f, 1f))
-                    }
-                },
-        ) {
-            drawRoundRect(
-                Color.White.copy(alpha = 0.22f),
-                size = androidx.compose.ui.geometry.Size(size.width, size.height),
-                cornerRadius = CornerRadius(size.height / 2),
-            )
-            drawRoundRect(
-                Color.White,
-                size = androidx.compose.ui.geometry.Size(
-                    size.width * fraction.coerceIn(0f, 1f),
-                    size.height,
-                ),
-                cornerRadius = CornerRadius(size.height / 2),
-            )
-            drawCircle(
-                Color.White,
-                radius = 4.5.dp.toPx(),
-                center = androidx.compose.ui.geometry.Offset(
-                    size.width * fraction.coerceIn(0f, 1f),
-                    size.height / 2,
-                ),
-            )
-        }
-    }
-}
+private val TableMargin = 20.dp
+private val MiniDisc = 38.dp
+private val TopBarHeight = 56.dp
+private val TableTopGap = 4.dp
