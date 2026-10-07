@@ -1,0 +1,22 @@
+REM GENRE Classical
+REM DISCNUMBER 63
+REM REPLAYGAIN_ALBUM_GAIN -5.00 dB
+PERFORMER "Soloist"
+TITLE "CD63 - 57 variation tracks, zero pregaps"
+FILE "CD63.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "Var 1"
+    SONGWRITER "Composer B"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Var 2"
+    SONGWRITER "Composer B"
+    INDEX 01 00:30:00
+  TRACK 03 AUDIO
+    TITLE "Var 3"
+    SONGWRITER "Composer B"
+    INDEX 01 01:00:00
+  TRACK 04 AUDIO
+    TITLE "Var 4"
+    SONGWRITER "Composer B"
+    INDEX 01 01:30:00

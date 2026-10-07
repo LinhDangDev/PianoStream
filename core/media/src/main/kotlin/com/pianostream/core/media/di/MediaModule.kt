@@ -7,6 +7,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.settings.SettingsDataStore
+import com.pianostream.core.local.api.LocalLibraryIndex
 import com.pianostream.core.local.api.LocalTrackWindowSource
 import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.media.audio.ReplayGainAudioProcessor
@@ -156,7 +157,12 @@ object MediaModule {
     fun queueAssembler(
         localItems: LocalMediaItemFactory,
         windowSource: LocalTrackWindowSource,
-    ): QueueAssembler = QueueAssembler(localItems, windowSource) { /* Phase 3 fills the artwork lookup */ null }
+        libraryIndex: LocalLibraryIndex,
+    ): QueueAssembler = QueueAssembler(localItems, windowSource) { key ->
+        libraryIndex.index()[key]?.let {
+            QueueAssembler.DiscArtwork(it.discKey, it.artworkUri, it.flacDurationMs)
+        }
+    }
 
     @Provides
     @Singleton

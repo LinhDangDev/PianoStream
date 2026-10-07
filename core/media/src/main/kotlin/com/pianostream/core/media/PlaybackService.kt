@@ -1,6 +1,8 @@
 package com.pianostream.core.media
 
 import android.content.Intent
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
@@ -50,6 +52,13 @@ class PlaybackService : MediaLibraryService() {
             .setId("pianostream-playback")
             .build()
         player.addListener(deps.queueStateWriter.playerListener)
+        // Feed the playing index into the preload policy so the manager
+        // targets next-track preload (3 s) rather than index 0.
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                deps.preloadPolicy.onUsedByPlayer(player.currentMediaItemIndex)
+            }
+        })
         deps.attachServiceScope(serviceScope)
     }
 

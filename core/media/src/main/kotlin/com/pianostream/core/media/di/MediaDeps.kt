@@ -3,6 +3,7 @@ package com.pianostream.core.media.di
 import androidx.media3.exoplayer.ExoPlayer
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.media.crossfade.CrossfadeController
+import com.pianostream.core.media.preload.PreloadPolicy
 import com.pianostream.core.media.queue.QueueStateWriter
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,6 +21,7 @@ class MediaDeps @Inject constructor(
     val crossfade: CrossfadeController,
     val queueStateWriter: QueueStateWriter,
     val settings: SettingsDataStore,
+    val preloadPolicy: PreloadPolicy,
 ) {
 
     @Volatile

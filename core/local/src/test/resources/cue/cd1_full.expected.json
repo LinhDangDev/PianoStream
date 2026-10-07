@@ -1,0 +1,48 @@
+{
+  "fileName": "CD01.flac",
+  "title": "The Ultimate Piano Collection - CD01",
+  "performer": "Various Artists",
+  "rem": {
+    "genre": "Classical",
+    "date": "2008",
+    "discNumber": 1,
+    "totalDiscs": 20,
+    "discId": "350B5A17",
+    "albumGainDb": -7.74,
+    "albumPeak": 0.995483
+  },
+  "tracks": [
+    {
+      "trackNo": 1, "indexInCue": 0,
+      "title": "Piano Sonata No. 14 in C-sharp minor, Op. 27 No. 2 - I. Adagio sostenuto",
+      "performer": "Daniel Barenboim", "songwriter": "Ludwig van Beethoven",
+      "index00Ms": null, "index01Ms": 0,
+      "trackGainDb": -7.83, "trackPeak": 0.982117,
+      "isrc": "DENVG8400101", "flags": 0
+    },
+    {
+      "trackNo": 2, "indexInCue": 1,
+      "title": "Piano Sonata No. 14 - II. Allegretto",
+      "performer": "Daniel Barenboim", "songwriter": "Ludwig van Beethoven",
+      "index00Ms": 372000, "index01Ms": 375000,
+      "trackGainDb": -7.12, "trackPeak": 0.995483,
+      "isrc": null, "flags": 0
+    },
+    {
+      "trackNo": 3, "indexInCue": 2,
+      "title": "Piano Sonata No. 14 - III. Presto agitato",
+      "performer": "Daniel Barenboim", "songwriter": "Ludwig van Beethoven",
+      "index00Ms": 510000, "index01Ms": 513000,
+      "trackGainDb": -6.89, "trackPeak": 0.990112,
+      "isrc": null, "flags": 0
+    },
+    {
+      "trackNo": 4, "indexInCue": 3,
+      "title": "Für Elise, WoO 59",
+      "performer": "Daniel Barenboim", "songwriter": "Ludwig van Beethoven",
+      "index00Ms": 840000, "index01Ms": 843000,
+      "trackGainDb": -8.05, "trackPeak": 0.975322,
+      "isrc": null, "flags": 0
+    }
+  ]
+}

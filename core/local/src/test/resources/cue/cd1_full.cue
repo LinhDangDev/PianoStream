@@ -1,0 +1,42 @@
+REM GENRE Classical
+REM DATE 2008
+REM DISCNUMBER 1
+REM TOTALDISCS 20
+REM DISCID 350B5A17
+REM REPLAYGAIN_ALBUM_GAIN -7.74 dB
+REM REPLAYGAIN_ALBUM_PEAK 0.995483
+PERFORMER "Various Artists"
+TITLE "The Ultimate Piano Collection - CD01"
+FILE "CD01.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "Piano Sonata No. 14 in C-sharp minor, Op. 27 No. 2 - I. Adagio sostenuto"
+    PERFORMER "Daniel Barenboim"
+    SONGWRITER "Ludwig van Beethoven"
+    REM REPLAYGAIN_TRACK_GAIN -7.83 dB
+    REM REPLAYGAIN_TRACK_PEAK 0.982117
+    ISRC DENVG8400101
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Piano Sonata No. 14 - II. Allegretto"
+    PERFORMER "Daniel Barenboim"
+    SONGWRITER "Ludwig van Beethoven"
+    REM REPLAYGAIN_TRACK_GAIN -7.12 dB
+    REM REPLAYGAIN_TRACK_PEAK 0.995483
+    INDEX 00 06:12:00
+    INDEX 01 06:15:00
+  TRACK 03 AUDIO
+    TITLE "Piano Sonata No. 14 - III. Presto agitato"
+    PERFORMER "Daniel Barenboim"
+    SONGWRITER "Ludwig van Beethoven"
+    REM REPLAYGAIN_TRACK_GAIN -6.89 dB
+    REM REPLAYGAIN_TRACK_PEAK 0.990112
+    INDEX 00 08:30:00
+    INDEX 01 08:33:00
+  TRACK 04 AUDIO
+    TITLE "Für Elise, WoO 59"
+    PERFORMER "Daniel Barenboim"
+    SONGWRITER "Ludwig van Beethoven"
+    REM REPLAYGAIN_TRACK_GAIN -8.05 dB
+    REM REPLAYGAIN_TRACK_PEAK 0.975322
+    INDEX 00 14:00:00
+    INDEX 01 14:03:00
