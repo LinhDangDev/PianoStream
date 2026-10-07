@@ -11,6 +11,8 @@ import java.io.IOException
  * never streamed through `SimpleCache` (a 21 GB library would obliterate the
  * 512 MiB streaming budget); `ContentIdCacheKeyFactory` returning `null` for
  * `local/` stays a dead-code contract assertion instead of a live NPE.
+ * `pianostream://video/…` takes the cached branch like `stream/` — muxed
+ * mp4 bytes cache under their own mediaId.
  */
 class SchemeRoutingDataSource(
     private val cached: DataSource,

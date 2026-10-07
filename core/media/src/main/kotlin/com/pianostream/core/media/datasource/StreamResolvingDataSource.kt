@@ -19,6 +19,8 @@ import kotlinx.coroutines.runBlocking
  *  - `pianostream://stream/<videoId>` → [StreamResolver.resolve] → fresh
  *    `googlevideo` URL + headers, substituted into the spec before opening
  *    the real upstream.
+ *  - `pianostream://video/<videoId>` → [StreamResolver.resolveVideo] → fresh
+ *    muxed mp4 URL — identical substitution, 403-retry and redaction rules.
  *  - `pianostream://local/<contentKey>` → the [localResolver] maps the key to
  *    its SAF `content://` FLAC document URI (resolved through `discs`/`tracks`
  *    — the synthetic URI's path is never trusted, CC9).
@@ -64,14 +66,15 @@ class StreamResolvingDataSource(
     override fun open(dataSpec: DataSpec): Long {
         val uri = dataSpec.uri?.toString() ?: throw IOException("null uri")
         return when (val id = PianoStreamUri.parse(uri)) {
-            is PianoStreamUri.Id.Stream -> openStream(dataSpec, id.videoId)
+            is PianoStreamUri.Id.Stream -> openResolved(dataSpec, id.videoId, video = false)
+            is PianoStreamUri.Id.Video -> openResolved(dataSpec, id.videoId, video = true)
             is PianoStreamUri.Id.Local -> openLocal(dataSpec, id.contentKey)
             null -> openUpstream(dataSpec) // non-pianostream (e.g. content://)
         }
     }
 
-    private fun openStream(dataSpec: DataSpec, videoId: String): Long {
-        val resolved = resolveOrThrow(videoId, force = false)
+    private fun openResolved(dataSpec: DataSpec, videoId: String, video: Boolean): Long {
+        val resolved = resolveOrThrow(videoId, video, force = false)
         val spec = substitute(dataSpec, resolved.url, resolved.headers)
         try {
             return upstream.open(spec)
@@ -80,7 +83,7 @@ class StreamResolvingDataSource(
             // H1: first 403 — evict + recordFailure + one forced re-resolve.
             closeQuietly()
             logd("403 on resolved url — forcing re-resolve for $videoId")
-            val fresh = resolveOrThrow(videoId, force = true)
+            val fresh = resolveOrThrow(videoId, video, force = true)
             val retrySpec = substitute(dataSpec, fresh.url, fresh.headers)
             return upstream.open(retrySpec)
         }
@@ -94,11 +97,14 @@ class StreamResolvingDataSource(
 
     private fun openUpstream(dataSpec: DataSpec): Long = upstream.open(dataSpec)
 
-    private fun resolveOrThrow(videoId: String, force: Boolean) = try {
-        runBlocking { resolver.resolve(videoId, preferredItag, force) }
+    private fun resolveOrThrow(videoId: String, video: Boolean, force: Boolean) = try {
+        runBlocking {
+            if (video) resolver.resolveVideo(videoId, force)
+            else resolver.resolve(videoId, preferredItag, force)
+        }
     } catch (e: ExtractionException) {
         // H5 — surface the subtype unchanged as the cause.
-        throw IOException("stream resolve failed for $videoId", e)
+        throw IOException("${if (video) "video" else "stream"} resolve failed for $videoId", e)
     }
 
     private fun substitute(

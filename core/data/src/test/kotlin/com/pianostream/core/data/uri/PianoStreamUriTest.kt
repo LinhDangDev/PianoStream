@@ -32,6 +32,19 @@ class PianoStreamUriTest {
     }
 
     @Test
+    fun `video uri round-trips`() {
+        val videoId = "dQw4w9WgXcQ"
+        val uri = PianoStreamUri.video(videoId)
+        assertThat(uri).isEqualTo("pianostream://video/$videoId")
+        assertThat(PianoStreamUri.parse(uri)).isEqualTo(Id.Video(videoId))
+        assertThat(PianoStreamUri.isVideo(uri)).isTrue()
+        // A video URI is never its audio/local counterpart.
+        assertThat(PianoStreamUri.isStream(uri)).isFalse()
+        assertThat(PianoStreamUri.isLocal(uri)).isFalse()
+        assertThat(PianoStreamUri.isVideo(PianoStreamUri.stream(videoId))).isFalse()
+    }
+
+    @Test
     fun `parse rejects hostile ids`() {
         val hostile = listOf(
             "pianostream://stream/",
@@ -49,6 +62,16 @@ class PianoStreamUriTest {
             "pianostream://local/",
             "pianostream://local/a b",
             "pianostream://local/%252e%252e",
+            "pianostream://video/",
+            "pianostream://video",
+            "pianostream://video/a/b",
+            "pianostream://video/../etc",
+            "pianostream://video/%2Fetc",
+            "pianostream://video/id?x=1",
+            "pianostream://video/id#frag",
+            "pianostream://video/id with space",
+            "pianostream://video/" + "A".repeat(65),
+            "pianostream://video/abc/extra",
             "pianostream:///stream/abc",
             "pianostream://stream\\abc",
             "file://stream/abc",
@@ -77,7 +100,8 @@ class PianoStreamUriTest {
 
     private fun assertThrowsOnBuild(id: String) {
         val threw = runCatching { PianoStreamUri.stream(id) }.isFailure &&
-            runCatching { PianoStreamUri.local(id) }.isFailure
+            runCatching { PianoStreamUri.local(id) }.isFailure &&
+            runCatching { PianoStreamUri.video(id) }.isFailure
         assertWithMessage(id).that(threw).isTrue()
     }
 

@@ -223,4 +223,64 @@ class StreamResolverImplTest {
         assertThat(s.itag).isEqualTo(251)
         assertThat(server.requestCount).isEqualTo(2)
     }
+
+    @Test
+    fun `resolveVideo returns muxed itag 22 mp4`() = runTest {
+        server.enqueue(MockResponse().setBody(fixture("player_response_muxed.json")))
+        val s = resolver().resolveVideo("dQw4w9WgXcQ")
+        assertThat(s.itag).isEqualTo(22)
+        assertThat(s.mimeType).contains("video/mp4")
+        assertThat(s.url).startsWith("https://rr1---sn-example.googlevideo.com/")
+        assertThat(s.toString()).doesNotContain("expire=")
+    }
+
+    @Test
+    fun `resolveVideo falls back to itag 18 when 22 absent`() = runTest {
+        val only18 = fixture("player_response_muxed.json")
+            .replace("\"itag\": 22", "\"itag\": 18")
+        server.enqueue(MockResponse().setBody(only18))
+        val s = resolver().resolveVideo("dQw4w9WgXcQ")
+        assertThat(s.itag).isEqualTo(18)
+    }
+
+    @Test
+    fun `resolveVideo throws NoFormats when no muxed format exists`() = runTest {
+        // Audio-only response: adaptiveFormats present but nothing muxed.
+        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
+        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
+        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
+        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
+        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
+        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
+        val err = runCatching { resolver().resolveVideo("dQw4w9WgXcQ") }.exceptionOrNull()
+        assertThat(err).isInstanceOf(ExtractionException.NoFormats::class.java)
+    }
+
+    @Test
+    fun `resolveVideo caches separately from audio resolve`() = runTest {
+        server.enqueue(MockResponse().setBody(fixture("player_response_muxed.json")))
+        server.enqueue(MockResponse().setBody(fixture("player_response_muxed.json")))
+        val r = resolver()
+        val video = r.resolveVideo("dQw4w9WgXcQ")
+        val audio = r.resolve("dQw4w9WgXcQ") // audio needs its own fetch
+        assertThat(video.itag).isEqualTo(22)
+        assertThat(audio.itag).isEqualTo(251)
+        assertThat(server.requestCount).isEqualTo(2)
+        // Second video resolve hits the video cache entry.
+        r.resolveVideo("dQw4w9WgXcQ")
+        assertThat(server.requestCount).isEqualTo(2)
+    }
+
+    @Test
+    fun `default resolveVideo on audio-only resolver throws NoFormats`() = runTest {
+        val fake = object : com.pianostream.core.youtube.api.StreamResolver {
+            override suspend fun resolve(
+                videoId: String,
+                preferredItag: Int,
+                force: Boolean,
+            ) = throw ExtractionException.AllClientsFailed("unused")
+        }
+        val err = runCatching { fake.resolveVideo("dQw4w9WgXcQ") }.exceptionOrNull()
+        assertThat(err).isInstanceOf(ExtractionException.NoFormats::class.java)
+    }
 }

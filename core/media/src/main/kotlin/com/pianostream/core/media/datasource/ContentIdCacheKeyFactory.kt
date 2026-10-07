@@ -22,6 +22,8 @@ class ContentIdCacheKeyFactory : CacheKeyFactory {
         // entirely (CacheKeyFactory cannot return null in media3 1.11).
         return when {
             uri.startsWith("pianostream://stream/") -> uri
+            // Muxed video caches under its own mediaId, same rule as stream.
+            uri.startsWith("pianostream://video/") -> uri
             else -> dataSpec.key ?: uri
         }
     }

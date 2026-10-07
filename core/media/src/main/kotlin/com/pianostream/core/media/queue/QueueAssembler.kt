@@ -67,6 +67,12 @@ class QueueAssembler(
                     items += streamItem(row, parsed.videoId)
                     positions += row.position
                 }
+                // Video rows are YouTube-backed like streams; the mediaId's
+                // `video` scheme routes playback to the muxed-mp4 resolver.
+                is PianoStreamUri.Id.Video -> {
+                    items += streamItem(row, parsed.videoId)
+                    positions += row.position
+                }
                 is PianoStreamUri.Id.Local -> {
                     val w = windowByKey[parsed.contentKey]
                     if (w == null) {
