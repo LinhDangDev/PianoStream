@@ -1,0 +1,24 @@
+# Phase 1a frozen path; edits require a plan amendment.
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+**/build/
+.cxx/
+.keystore.properties
+/keystore.properties
+/release.jks
+*.jks
+*.keystore
+*.minisig
+/minisign.key
+/minisign.pub
+/captures/
+.externalNativeBuild/
+.cxx
+/app/release/
+/app/schemas/
+/core/data/schemas/
+/schemas/

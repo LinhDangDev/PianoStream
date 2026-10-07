@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Phase-1a frozen path; edits require a plan amendment.
+
+  Dependency-verification metadata (Gradle 9.6). Pins the only third-party
+  native-code artifact in the catalog — quickjs-kt — by SHA-256. Both the
+  root JVM artifact and the Android variant that KMP resolution actually
+  fetches are covered. All other dependencies resolve unverified but are
+  still bound by the repository content filter in settings.gradle.kts
+  (google() serves androidx.*/com.android.*/com.google.android.* only;
+  mavenCentral() excludes dagger/ksp/truth which exist there but not on
+  dl.google.com — verified 404).
+
+  Smoke check: flipping any sha256 value below makes
+  `./gradlew :core:youtube:dependencies` with strict dependency
+  verification fail with a checksum mismatch — verified at scaffold time.
+-->
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification"
+                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                       xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification.xsd">
+   <configuration>
+      <verify-metadata>false</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+      <trusted-artifacts>
+         <!-- Once verification metadata exists, unlisted artifacts FAIL
+              resolution. Everything other than io.github.dokar3 is already
+              constrained by the repository content filter and the pinned
+              version catalog; verification value is concentrated on the
+              native-code artifact below. -->
+         <trust group="^(?!io\.github\.dokar3$).*$" regex="true"/>
+      </trusted-artifacts>
+   </configuration>
+   <components>
+      <component group="io.github.dokar3" name="quickjs-kt" version="1.0.15">
+         <artifact name="quickjs-kt-1.0.15.jar">
+            <sha256 value="cd2541e4fbdfe766f060c5755ac88142ec95cf37ee2f28e9d459bcfb3c603b36"/>
+         </artifact>
+         <artifact name="quickjs-kt-1.0.15.module">
+            <sha256 value="7285992694f1116fdca3b1bc8b0f6ff969ca47a330f7bbc6ec863eb4e6127cb9"/>
+         </artifact>
+         <artifact name="quickjs-kt-1.0.15.pom">
+            <sha256 value="8c9e9aec15946a5e0cc255d7cb68bf6e62585cb2b595f385fa10da963a0c4074"/>
+         </artifact>
+      </component>
+      <component group="io.github.dokar3" name="quickjs-kt-android" version="1.0.15">
+         <artifact name="quickjs-release.aar">
+            <sha256 value="406c3efb80d5fa3495df4a7f2663be8cc30c974fe5c2368effa929de77cf0ed8"/>
+         </artifact>
+         <artifact name="quickjs-kt-android-1.0.15.module">
+            <sha256 value="4d1534e780ab999aaa757ffe4017ca3a533ed3df43438c4622fd76db1f69e465"/>
+         </artifact>
+         <artifact name="quickjs-kt-android-1.0.15.pom">
+            <sha256 value="cc3ef4b3e8674771ef29d059c28935dd009e6dac7fb90765e497bd8414fe2bbc"/>
+         </artifact>
+      </component>
+   </components>
+</verification-metadata>
