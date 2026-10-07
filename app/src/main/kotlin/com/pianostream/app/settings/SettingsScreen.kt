@@ -1,14 +1,21 @@
 package com.pianostream.app.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -24,6 +31,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -34,12 +45,17 @@ import com.pianostream.core.data.settings.SettingsDataStore.ThemeMode
 import com.pianostream.core.designsystem.component.SectionHeader
 import androidx.compose.material3.ButtonDefaults
 import com.pianostream.core.designsystem.component.Vinyl
+import com.pianostream.core.designsystem.theme.Aurora
 
 /**
  * Settings — every frozen `SettingsDataStore` key reachable (C5): Appearance,
  * Playback, Search & network (flavor-bound updater row, F2/F15), Storage,
  * Library, Danger zone. Phase 5b asserts the disclosure rows exist and edits
  * none of them.
+ *
+ * Presentation: grouped neumorphic cards — one raised charcoal card per
+ * section with hairline-separated rows, same recipe as the About disclosure
+ * cards (the turntable language, after dribbble.com/shots/12239558).
  */
 @Composable
 public fun SettingsScreen(
@@ -54,166 +70,166 @@ public fun SettingsScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { SectionHeader("Appearance") }
         item {
-            ChoiceRow(
-                title = "Theme",
-                value = state.themeMode.name.lowercase().replaceFirstChar { it.uppercase() },
-                choices = ThemeMode.entries.toList(),
-                label = { it.name.lowercase().replaceFirstChar(Char::uppercase) },
-                onPick = viewModel::setThemeMode,
-            )
-        }
-        item {
-            ToggleRow(
-                title = "Dynamic color",
-                subtitle = "Wallpaper-based colors (Android 12+)",
-                checked = state.dynamicColor,
-                onToggle = viewModel::setDynamicColor,
-            )
-        }
-
-        item { SectionHeader("Playback") }
-        item {
-            ChoiceRow(
-                title = "ReplayGain",
-                subtitle = "OFF restores audio offload",
-                value = state.replayGainMode.name,
-                choices = ReplayGainMode.entries.toList(),
-                label = { it.name },
-                onPick = viewModel::setReplayGainMode,
-            )
-        }
-        item {
-            SliderRow(
-                title = "ReplayGain preamp",
-                valueLabel = "${state.preampDb} dB",
-                value = state.preampDb.toFloat(),
-                range = -12f..12f,
-                onChange = { viewModel.setPreampDb(it.toDouble()) },
-            )
-        }
-        item {
-            SliderRow(
-                title = "Crossfade",
-                valueLabel = "${state.crossfadeMs} ms",
-                value = state.crossfadeMs.toFloat(),
-                range = 0f..12_000f,
-                onChange = { viewModel.setCrossfadeMs(it.toInt()) },
-            )
-        }
-        item {
-            ChoiceRow(
-                title = "When the app is swiped away",
-                value = state.taskRemovalPolicy.name,
-                choices = TaskRemovalPolicy.entries.toList(),
-                label = { it.name },
-                onPick = viewModel::setTaskRemovalPolicy,
-            )
-        }
-        item {
-            ChoiceRow(
-                title = "Preferred stream quality",
-                value = "itag ${state.preferredItag}",
-                choices = listOf(251, 250, 249, 140),
-                label = { "itag $it" },
-                onPick = viewModel::setPreferredItag,
-            )
-        }
-
-        item { SectionHeader("Search & network") }
-        item {
-            ToggleRow(
-                title = "This device only",
-                subtitle = "Search never touches the network",
-                checked = state.localOnlySearch,
-                onToggle = viewModel::setLocalOnlySearch,
-            )
-        }
-        item {
-            ToggleRow(
-                title = "Search suggestions",
-                subtitle = "Sends your query to YouTube while typing",
-                checked = state.sendSearchSuggestions,
-                onToggle = viewModel::setSendSearchSuggestions,
-            )
-        }
-        if (BuildConfig.UPDATE_ASSET.isNotEmpty()) {
-            item {
+            SettingsGroup(title = "Appearance") {
+                ChoiceRow(
+                    title = "Theme",
+                    value = state.themeMode.name.lowercase().replaceFirstChar { it.uppercase() },
+                    choices = ThemeMode.entries.toList(),
+                    label = { it.name.lowercase().replaceFirstChar(Char::uppercase) },
+                    onPick = viewModel::setThemeMode,
+                )
+                RowDivider()
                 ToggleRow(
-                    title = "In-app updates",
-                    subtitle = "GitHub builds check your release channel",
-                    checked = state.updaterEnabled,
-                    onToggle = {
-                        if (it) onOpenUpdater() else viewModel.setUpdaterEnabled(false)
-                    },
+                    title = "Dynamic color",
+                    subtitle = "Wallpaper-based colors (Android 12+)",
+                    checked = state.dynamicColor,
+                    onToggle = viewModel::setDynamicColor,
                 )
             }
-        } else {
-            item {
+        }
+
+        item {
+            SettingsGroup(title = "Playback") {
+                ChoiceRow(
+                    title = "ReplayGain",
+                    subtitle = "OFF restores audio offload",
+                    value = state.replayGainMode.name,
+                    choices = ReplayGainMode.entries.toList(),
+                    label = { it.name },
+                    onPick = viewModel::setReplayGainMode,
+                )
+                RowDivider()
+                SliderRow(
+                    title = "ReplayGain preamp",
+                    valueLabel = "${state.preampDb} dB",
+                    value = state.preampDb.toFloat(),
+                    range = -12f..12f,
+                    onChange = { viewModel.setPreampDb(it.toDouble()) },
+                )
+                RowDivider()
+                SliderRow(
+                    title = "Crossfade",
+                    valueLabel = "${state.crossfadeMs} ms",
+                    value = state.crossfadeMs.toFloat(),
+                    range = 0f..12_000f,
+                    onChange = { viewModel.setCrossfadeMs(it.toInt()) },
+                )
+                RowDivider()
+                ChoiceRow(
+                    title = "When the app is swiped away",
+                    value = state.taskRemovalPolicy.name,
+                    choices = TaskRemovalPolicy.entries.toList(),
+                    label = { it.name },
+                    onPick = viewModel::setTaskRemovalPolicy,
+                )
+                RowDivider()
+                ChoiceRow(
+                    title = "Preferred stream quality",
+                    value = "itag ${state.preferredItag}",
+                    choices = listOf(251, 250, 249, 140),
+                    label = { "itag $it" },
+                    onPick = viewModel::setPreferredItag,
+                )
+            }
+        }
+
+        item {
+            SettingsGroup(title = "Search & network") {
                 ToggleRow(
-                    title = "In-app updates",
-                    subtitle = "GitHub build only",
-                    checked = false,
-                    onToggle = {},
+                    title = "This device only",
+                    subtitle = "Search never touches the network",
+                    checked = state.localOnlySearch,
+                    onToggle = viewModel::setLocalOnlySearch,
+                )
+                RowDivider()
+                ToggleRow(
+                    title = "Search suggestions",
+                    subtitle = "Sends your query to YouTube while typing",
+                    checked = state.sendSearchSuggestions,
+                    onToggle = viewModel::setSendSearchSuggestions,
+                )
+                if (BuildConfig.UPDATE_ASSET.isNotEmpty()) {
+                    RowDivider()
+                    ToggleRow(
+                        title = "In-app updates",
+                        subtitle = "GitHub builds check your release channel",
+                        checked = state.updaterEnabled,
+                        onToggle = {
+                            if (it) onOpenUpdater() else viewModel.setUpdaterEnabled(false)
+                        },
+                    )
+                } else {
+                    RowDivider()
+                    ToggleRow(
+                        title = "In-app updates",
+                        subtitle = "GitHub build only",
+                        checked = false,
+                        onToggle = {},
+                        enabled = false,
+                    )
+                }
+                RowDivider()
+                ToggleRow(
+                    title = "Remote player config",
+                    subtitle = "YouTube player.js config refresh",
+                    checked = state.remoteConfigEnabled,
+                    onToggle = viewModel::requestRemoteConfig,
+                )
+            }
+        }
+
+        item {
+            SettingsGroup(title = "Storage") {
+                SliderRow(
+                    title = "Stream cache budget",
+                    valueLabel = "${state.cacheBudgetBytes / (1024 * 1024)} MB",
+                    value = (state.cacheBudgetBytes / (1024 * 1024)).toFloat(),
+                    range = 256f..8192f,
+                    onChange = { viewModel.setCacheBudgetBytes(it.toLong() * 1024 * 1024) },
+                )
+                RowDivider()
+                ActionRow(title = "Clear stream cache", onClick = {
+                    viewModel.clearStreamCache(); onClearStreamCache()
+                })
+            }
+        }
+
+        item {
+            SettingsGroup(title = "Library") {
+                ActionRow(
+                    title = "Library folder",
+                    subtitle = state.libraryRootTreeUri ?: "Not set",
+                    onClick = {},
                     enabled = false,
                 )
+                RowDivider()
+                ActionRow(
+                    title = "Revoke library access",
+                    subtitle = "Releases the folder permission",
+                    onClick = onRevokeLibrary,
+                )
             }
         }
+
         item {
-            ToggleRow(
-                title = "Remote player config",
-                subtitle = "YouTube player.js config refresh",
-                checked = state.remoteConfigEnabled,
-                onToggle = viewModel::requestRemoteConfig,
-            )
+            SettingsGroup(title = "About") {
+                ActionRow(title = "About PianoStream", onClick = onOpenAbout)
+            }
         }
 
-        item { SectionHeader("Storage") }
         item {
-            SliderRow(
-                title = "Stream cache budget",
-                valueLabel = "${state.cacheBudgetBytes / (1024 * 1024)} MB",
-                value = (state.cacheBudgetBytes / (1024 * 1024)).toFloat(),
-                range = 256f..8192f,
-                onChange = { viewModel.setCacheBudgetBytes(it.toLong() * 1024 * 1024) },
-            )
-        }
-        item {
-            ActionRow(title = "Clear stream cache", onClick = {
-                viewModel.clearStreamCache(); onClearStreamCache()
-            })
-        }
-
-        item { SectionHeader("Library") }
-        item {
-            ActionRow(
-                title = "Library folder",
-                subtitle = state.libraryRootTreeUri ?: "Not set",
-                onClick = {},
-                enabled = false,
-            )
-        }
-        item {
-            ActionRow(
-                title = "Revoke library access",
-                subtitle = "Releases the folder permission",
-                onClick = onRevokeLibrary,
-            )
-        }
-
-        item { SectionHeader("About") }
-        item { ActionRow(title = "About PianoStream", onClick = onOpenAbout) }
-
-        item { SectionHeader("Danger zone") }
-        item {
-            ActionRow(
-                title = "Delete all local data",
-                subtitle = "Wipes databases, settings, caches — everything",
-                onClick = viewModel::requestDeleteAll,
-            )
+            SettingsGroup(title = "Danger zone") {
+                ActionRow(
+                    title = "Delete all local data",
+                    subtitle = "Wipes databases, settings, caches — everything",
+                    onClick = viewModel::requestDeleteAll,
+                    danger = true,
+                )
+            }
         }
     }
 
@@ -275,6 +291,46 @@ public fun SettingsScreen(
     }
 }
 
+/**
+ * Raised charcoal card holding one settings section — identical recipe to the
+ * About `DisclosureCard` (soft shadow, lifted gradient, hairline border,
+ * 20dp corners) so both screens read as one design language.
+ */
+@Composable
+private fun SettingsGroup(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(10.dp, shape, clip = false)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(Color(0xFF2A2D32), Color(0xFF1B1C1F)),
+                ),
+            )
+            .border(0.5.dp, Aurora.Hairline, shape)
+            .padding(bottom = 6.dp),
+    ) {
+        SectionHeader(title)
+        content()
+    }
+}
+
+/** Hairline inside a card between rows. */
+@Composable
+private fun RowDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        thickness = 0.5.dp,
+        color = Aurora.Hairline,
+    )
+}
+
 @Composable
 private fun ToggleRow(
     title: String,
@@ -289,7 +345,7 @@ private fun ToggleRow(
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable(enabled = enabled) { onToggle(!checked) }
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -332,7 +388,7 @@ private fun <T> ChoiceRow(
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable { expanded = true }
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 16.dp),
     ) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         subtitle?.let {
@@ -350,10 +406,19 @@ private fun <T> ChoiceRow(
         androidx.compose.material3.DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = Color(0xFF232529),
+            tonalElevation = 0.dp,
         ) {
             choices.forEach { c ->
-                androidx.compose.material3.DropdownMenuItem(
-                    text = { Text(label(c)) },
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            label(c),
+                            color = if (label(c) == value) Vinyl.Gold
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    },
                     onClick = { onPick(c); expanded = false },
                 )
             }
@@ -374,11 +439,11 @@ private fun SliderRow(
         modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 16.dp),
     ) {
         Row(Modifier.fillMaxWidth()) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-            Text(valueLabel, style = MaterialTheme.typography.bodyMedium)
+            Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = Vinyl.Gold)
         }
         Slider(
             value = value,
@@ -400,19 +465,21 @@ private fun ActionRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     enabled: Boolean = true,
+    danger: Boolean = false,
 ) {
     Column(
         modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 16.dp),
     ) {
         Text(
             title,
             style = MaterialTheme.typography.bodyLarge,
-            color = if (enabled) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant
+            else if (danger) Color(0xFFD97B6C)
+            else MaterialTheme.colorScheme.onSurface,
         )
         subtitle?.let {
             Text(
