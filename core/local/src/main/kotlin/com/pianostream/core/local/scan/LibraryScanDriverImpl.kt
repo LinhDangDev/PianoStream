@@ -21,7 +21,10 @@ import javax.inject.Singleton
  * marker — an incomplete disc always re-parses; the first `SecurityException`
  * aborts keeping previous rows (`grantLost`); `0 discs && previous > 0`
  * returns an error result, never an empty success; a disc is skipped only
- * when `flacLastModified`+`flacSizeBytes` match AND `scanComplete` is set.
+ * when `flacLastModified`+`flacSizeBytes` AND the resolved `artworkUri`
+ * match AND `scanComplete` is set — the artwork term is what makes a
+ * `Front.jpeg` dropped beside the cue/flac after the first scan
+ * re-scannable.
  */
 @Singleton
 class LibraryScanDriverImpl @Inject constructor(
@@ -65,9 +68,7 @@ class LibraryScanDriverImpl @Inject constructor(
 
         for (d in scan.discs) {
             val prior = previous[d.docId]
-            val unchanged = prior != null && prior.scanComplete &&
-                prior.flacSizeBytes == d.flac.size &&
-                prior.flacLastModified == d.flac.lastModified
+            val unchanged = prior != null && unchangedSince(prior, d)
             if (!unchanged) {
                 reParsed++
                 store.writeDisc(
@@ -151,5 +152,24 @@ class LibraryScanDriverImpl @Inject constructor(
             missingCount = missingCount,
             warnings = warnings,
         )
+    }
+
+    companion object {
+        /**
+         * Incremental-scan fingerprint: a disc row is rewritten when the
+         * flac identity, the resolved artwork identity, or the M2
+         * `scanComplete` marker disagrees. Artwork compares by document URI
+         * (add, remove, or replace-by-new-document all change it; an
+         * in-place overwrite under the same docId is not detectable without
+         * a stored artwork timestamp).
+         */
+        internal fun unchangedSince(
+            prior: LibraryDataAccess.StoredDisc,
+            d: LibraryScanner.DiscScan,
+        ): Boolean =
+            prior.scanComplete &&
+                prior.flacSizeBytes == d.flac.size &&
+                prior.flacLastModified == d.flac.lastModified &&
+                prior.artworkUri == d.artworkUri
     }
 }

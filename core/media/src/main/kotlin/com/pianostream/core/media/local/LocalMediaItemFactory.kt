@@ -96,6 +96,10 @@ class LocalMediaItemFactory(
             .setArtist(artist)
             .setExtras(extras)
             .apply {
+                // artworkUri for in-process readers (vinyl labels, queue
+                // thumbs — Coil holds the SAF grant); artworkData stays for
+                // the grant-less lockscreen process.
+                artworkDocumentUri?.let { setArtworkUri(Uri.parse(it)) }
                 artworkBytes?.let { setArtworkData(it, MediaMetadata.PICTURE_TYPE_FRONT_COVER) }
             }
             .build()
