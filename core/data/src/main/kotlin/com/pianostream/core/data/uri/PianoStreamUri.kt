@@ -19,6 +19,12 @@ package com.pianostream.core.data.uri
  *    `ClippingConfiguration(startMs, endMs)`; the URI's own path component is
  *    never trusted for resolution (CC9).
  *
+ *  * `pianostream://video/<videoId>` — remote video identity (muxed
+ *    progressive mp4). The Song/Video toggle swaps a playback request's URI
+ *    between this and the `stream` form; the resolver picks the best muxed
+ *    format (itag 22 → 18) at resolve time — `itag` still never appears in
+ *    a mediaId.
+ *
  * Validation contract: `parse` must round-trip (`parse(build(x)) == x`) and
  * rejects `/`, `..`, any `%` sequence (e.g. `%2F`), `?`, `#`, empty ids and
  * ids longer than 64 characters. The stricter videoId shape
@@ -31,6 +37,7 @@ public object PianoStreamUri {
     public const val SCHEME: String = "pianostream"
     public const val HOST_STREAM: String = "stream"
     public const val HOST_LOCAL: String = "local"
+    public const val HOST_VIDEO: String = "video"
 
     private const val PREFIX: String = "$SCHEME://"
     private const val MAX_ID_LENGTH: Int = 64
@@ -45,6 +52,9 @@ public object PianoStreamUri {
 
         /** `pianostream://local/<contentKey>` */
         public data class Local(val contentKey: String) : Id()
+
+        /** `pianostream://video/<videoId>` */
+        public data class Video(val videoId: String) : Id()
     }
 
     /** Builds `pianostream://stream/<videoId>`. Throws on an invalid id. */
@@ -57,6 +67,12 @@ public object PianoStreamUri {
     public fun local(contentKey: String): String {
         require(isValidId(contentKey)) { "invalid local id component" }
         return PREFIX + HOST_LOCAL + "/" + contentKey
+    }
+
+    /** Builds `pianostream://video/<videoId>`. Throws on an invalid id. */
+    public fun video(videoId: String): String {
+        require(isValidId(videoId)) { "invalid video id component" }
+        return PREFIX + HOST_VIDEO + "/" + videoId
     }
 
     /**
@@ -76,6 +92,7 @@ public object PianoStreamUri {
         return when (host) {
             HOST_STREAM -> Id.Stream(id)
             HOST_LOCAL -> Id.Local(id)
+            HOST_VIDEO -> Id.Video(id)
             else -> null
         }
     }
@@ -85,6 +102,9 @@ public object PianoStreamUri {
 
     /** True when `value` is a `pianostream://local/` URI. */
     public fun isLocal(value: String): Boolean = parse(value) is Id.Local
+
+    /** True when `value` is a `pianostream://video/` URI. */
+    public fun isVideo(value: String): Boolean = parse(value) is Id.Video
 
     /**
      * Returns the videoId of a `stream` id when it satisfies the strict

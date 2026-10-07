@@ -53,4 +53,32 @@ class FormatPickerTest {
     fun `empty list yields null`() {
         assertThat(FormatPicker.pick(emptyList(), preferred = 251)).isNull()
     }
+
+    @Test
+    fun `pickVideo prefers muxed 22 then 18`() {
+        val out = FormatPicker.pickVideo(listOf(fmt(18), fmt(251), fmt(22)), preferred = 22)
+        assertThat(out!!.itag).isEqualTo(22)
+    }
+
+    @Test
+    fun `pickVideo falls back to 18 when 22 absent`() {
+        val out = FormatPicker.pickVideo(listOf(fmt(251), fmt(18), fmt(140)), preferred = 22)
+        assertThat(out!!.itag).isEqualTo(18)
+    }
+
+    @Test
+    fun `pickVideo preferred override wins over canonical order`() {
+        val out = FormatPicker.pickVideo(listOf(fmt(22), fmt(18)), preferred = 18)
+        assertThat(out!!.itag).isEqualTo(18)
+    }
+
+    @Test
+    fun `pickVideo rejects non-muxed and audio-only itags`() {
+        // 251/140 are audio allow-list but not muxed video; 137/136 are
+        // video-only adaptive (no audio track — not progressive).
+        assertThat(
+            FormatPicker.pickVideo(listOf(fmt(251), fmt(140), fmt(137), fmt(136)), preferred = 22)
+        ).isNull()
+        assertThat(FormatPicker.pickVideo(emptyList(), preferred = 22)).isNull()
+    }
 }

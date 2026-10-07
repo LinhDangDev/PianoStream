@@ -60,16 +60,41 @@ internal class StreamResolverImpl(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** Which format family a resolve targets; everything else is shared. */
+    private enum class Kind(val allowedItags: List<Int>, val label: String) {
+        AUDIO(FormatPicker.ALLOWED_ITAGS, "audio"),
+        VIDEO(FormatPicker.ALLOWED_VIDEO_ITAGS, "video"),
+    }
+
     override suspend fun resolve(
         videoId: String,
         preferredItag: Int,
         force: Boolean,
+    ): ResolvedStream = resolveKinded(videoId, preferredItag, force, Kind.AUDIO)
+
+    override suspend fun resolveVideo(
+        videoId: String,
+        force: Boolean,
+    ): ResolvedStream = resolveKinded(
+        videoId,
+        FormatPicker.ALLOWED_VIDEO_ITAGS.first(),
+        force,
+        Kind.VIDEO,
+    )
+
+    private suspend fun resolveKinded(
+        videoId: String,
+        preferredItag: Int,
+        force: Boolean,
+        kind: Kind,
     ): ResolvedStream {
         require(PianoStreamId.isVideoId(videoId)) {
             "videoId must match ^[A-Za-z0-9_-]{11}$"
         }
-        if (preferredItag !in FormatPicker.ALLOWED_ITAGS) {
-            throw ExtractionException.NoFormats("itag $preferredItag not in audio allow-list")
+        if (preferredItag !in kind.allowedItags) {
+            throw ExtractionException.NoFormats(
+                "itag $preferredItag not in ${kind.label} allow-list"
+            )
         }
 
         var excluding: String? = null
@@ -92,7 +117,7 @@ internal class StreamResolverImpl(
         var lastError: ExtractionException? = null
         for (client in candidates) {
             try {
-                val stream = resolveWith(client, videoId, preferredItag)
+                val stream = resolveWith(client, videoId, preferredItag, kind)
                 health.recordSuccess(client.id)
                 return stream
             } catch (e: ExtractionException.RateLimited) {
@@ -116,6 +141,7 @@ internal class StreamResolverImpl(
         client: YouTubeClientCatalog.Client,
         videoId: String,
         preferredItag: Int,
+        kind: Kind,
     ): ResolvedStream = withContext(Dispatchers.IO) {
         // Session-bound token on the player request only for clients that
         // require it; GVS stays off this path entirely (F3).
@@ -135,8 +161,12 @@ internal class StreamResolverImpl(
         if (!parsed.playabilityOk) {
             throw ExtractionException.NoFormats("unplayable on ${client.id}")
         }
-        val format = FormatPicker.pick(parsed.formats, preferredItag)
-            ?: throw ExtractionException.NoFormats("no allowed audio itag on ${client.id}")
+        val format = when (kind) {
+            Kind.AUDIO -> FormatPicker.pick(parsed.formats, preferredItag)
+            Kind.VIDEO -> FormatPicker.pickVideo(parsed.formats, preferredItag)
+        } ?: throw ExtractionException.NoFormats(
+            "no allowed ${kind.label} itag on ${client.id}"
+        )
 
         val finalUrl = materializeUrl(client, playerResponse, format)
 

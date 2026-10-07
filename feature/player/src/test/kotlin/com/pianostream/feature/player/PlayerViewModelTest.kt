@@ -47,6 +47,8 @@ class PlayerViewModelTest {
         var playing = false
         var prepareCalls = 0
 
+        var replaceCalls = mutableListOf<List<String>>()
+
         private val items = (1..3).map { i ->
             MediaItemData.Builder("uid-$i")
                 .setMediaItem(
@@ -62,6 +64,22 @@ class PlayerViewModelTest {
                 .setDurationUs(60_000_000)
                 .setIsSeekable(true)
                 .build()
+        }.toMutableList()
+
+        /** Re-point every fake item at a YouTube stream identity. */
+        fun useYouTubeItems() {
+            items.indices.forEach { i ->
+                items[i] = items[i].buildUpon()
+                    .setMediaItem(
+                        items[i].mediaItem.buildUpon()
+                            .setMediaId("pianostream://stream/abcdefghij$i")
+                            .setUri("pianostream://stream/abcdefghij$i")
+                            .build(),
+                    )
+                    .build()
+            }
+            _state = _state.buildUpon().setPlaylist(items).build()
+            invalidateState()
         }
 
         private var _state = State.Builder()
@@ -172,6 +190,22 @@ class PlayerViewModelTest {
             toIndex: Int,
         ): ListenableFuture<*> {
             removeCalls.add(fromIndex)
+            return Futures.immediateVoidFuture()
+        }
+
+        override fun handleReplaceMediaItems(
+            fromIndex: Int,
+            toIndex: Int,
+            mediaItems: List<MediaItem>,
+        ): ListenableFuture<*> {
+            replaceCalls.add(mediaItems.map { it.mediaId })
+            var i = fromIndex
+            for (m in mediaItems) {
+                items[i] = items[i].buildUpon().setMediaItem(m).build()
+                i++
+            }
+            _state = _state.buildUpon().setPlaylist(items).build()
+            invalidateState()
             return Futures.immediateVoidFuture()
         }
     }
@@ -303,6 +337,50 @@ class PlayerViewModelTest {
         assertThat(vm.state.value.error).isNull()
         ShadowLooper.idleMainLooper()
         assertThat(player.prepareCalls).isAtLeast(1)
+    }
+
+    @Test
+    fun `video mode swaps stream and video schemes, preserving position`() = runTest {
+        ready.value = true
+        player.useYouTubeItems()
+        ShadowLooper.idleMainLooper()
+        val vm = vm()
+        player.setPositionAndPublish(12_000)
+        ShadowLooper.idleMainLooper()
+        assertThat(vm.state.value.videoCapable).isTrue()
+        assertThat(vm.state.value.videoMode).isFalse()
+
+        vm.setVideoMode(true)
+        ShadowLooper.idleMainLooper()
+        assertThat(player.replaceCalls.last())
+            .containsExactly("pianostream://video/abcdefghij0")
+        assertThat(player.currentMediaItem?.mediaId)
+            .isEqualTo("pianostream://video/abcdefghij0")
+        assertThat(player.seekToCalls.last()).isEqualTo(12_000)
+        assertThat(vm.state.value.videoMode).isTrue()
+
+        vm.setVideoMode(false)
+        ShadowLooper.idleMainLooper()
+        assertThat(player.currentMediaItem?.mediaId)
+            .isEqualTo("pianostream://stream/abcdefghij0")
+        assertThat(vm.state.value.videoMode).isFalse()
+
+        // Redundant toggles don't touch the player.
+        val calls = player.replaceCalls.size
+        vm.setVideoMode(false)
+        ShadowLooper.idleMainLooper()
+        assertThat(player.replaceCalls.size).isEqualTo(calls)
+    }
+
+    @Test
+    fun `video mode is inert for local items`() = runTest {
+        ready.value = true
+        val vm = vm()
+        vm.setVideoMode(true)
+        ShadowLooper.idleMainLooper()
+        assertThat(player.replaceCalls).isEmpty()
+        assertThat(vm.state.value.videoCapable).isFalse()
+        assertThat(vm.state.value.videoMode).isFalse()
     }
 
     @Test

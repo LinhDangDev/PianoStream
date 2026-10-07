@@ -28,6 +28,7 @@ class StreamResolvingDataSourceTest {
         data class Call(val videoId: String, val itag: Int, val force: Boolean)
 
         val calls = mutableListOf<Call>()
+        val videoCalls = mutableListOf<Call>()
         var next: (Call) -> ResolvedStream = { call ->
             ResolvedStream(
                 videoId = call.videoId,
@@ -44,6 +45,22 @@ class StreamResolvingDataSourceTest {
                 expiresAtUptimeMs = Long.MAX_VALUE,
             )
         }
+        var nextVideo: (Call) -> ResolvedStream = { call ->
+            ResolvedStream(
+                videoId = call.videoId,
+                url = "https://rr1---sn-abc.googlevideo.com/videoplayback?expire=999&itag=22&pot=SECRET&sig=SECRET",
+                itag = 22,
+                mimeType = "video/mp4",
+                bitrate = 1_500_000,
+                contentLength = 24_000_000,
+                expiresAtEpochMs = 9_999_999L,
+                expiresInSeconds = 3_600,
+                headers = mapOf("User-Agent" to "agent"),
+                clientId = "ANDROID_MUSIC",
+                resolvedAtUptimeMs = 0,
+                expiresAtUptimeMs = Long.MAX_VALUE,
+            )
+        }
 
         override suspend fun resolve(
             videoId: String,
@@ -52,6 +69,14 @@ class StreamResolvingDataSourceTest {
         ): ResolvedStream {
             calls += Call(videoId, preferredItag, force)
             return next(Call(videoId, preferredItag, force))
+        }
+
+        override suspend fun resolveVideo(
+            videoId: String,
+            force: Boolean,
+        ): ResolvedStream {
+            videoCalls += Call(videoId, 22, force)
+            return nextVideo(Call(videoId, 22, force))
         }
     }
 
@@ -162,6 +187,38 @@ class StreamResolvingDataSourceTest {
             throw AssertionError("expected IOException")
         } catch (e: IOException) {
             assertThat(e.cause).isInstanceOf(ExtractionException.RateLimited::class.java)
+        }
+    }
+
+    @Test
+    fun video_uri_routes_to_resolveVideo_then_opens_substituted_upstream() {
+        source().open(specOf("pianostream://video/dQw4w9WgXcQ"))
+        assertThat(resolver.videoCalls).hasSize(1)
+        assertThat(resolver.videoCalls[0].force).isFalse()
+        assertThat(resolver.calls).isEmpty() // audio resolve untouched
+        assertThat(localCalls).isEmpty()
+        val opened = upstream.openedSpecs.single()
+        assertThat(opened.uri.toString()).startsWith("https://rr1---sn-abc.googlevideo.com/")
+        assertThat(opened.uri.toString()).contains("itag=22")
+    }
+
+    @Test
+    fun first_403_on_video_forces_single_video_resolve_retry() {
+        upstream.throwable = http403(specOf("https://rr1---sn-abc.googlevideo.com/x"))
+        source().open(specOf("pianostream://video/dQw4w9WgXcQ"))
+        assertThat(resolver.videoCalls).hasSize(2)
+        assertThat(resolver.videoCalls[1].force).isTrue()
+        assertThat(upstream.openCount).isEqualTo(2)
+    }
+
+    @Test
+    fun video_extraction_exception_surfaces_as_io_cause() {
+        resolver.nextVideo = { throw ExtractionException.NoFormats("no muxed format") }
+        try {
+            source().open(specOf("pianostream://video/dQw4w9WgXcQ"))
+            throw AssertionError("expected IOException")
+        } catch (e: IOException) {
+            assertThat(e.cause).isInstanceOf(ExtractionException.NoFormats::class.java)
         }
     }
 

@@ -25,4 +25,22 @@ public interface StreamResolver {
         preferredItag: Int = 251,
         force: Boolean = false,
     ): ResolvedStream
+
+    /**
+     * Resolves a `videoId` to a muxed progressive video URL
+     * (`pianostream://video/<videoId>` playback): the best format from the
+     * video allow-list (`22` 720p mp4 → `18` 360p mp4). Reuses the same
+     * client fallback, cipher, poToken and cache machinery as [resolve];
+     * [ExtractionException.NoFormats] when no muxed format exists.
+     *
+     * Default throws `NoFormats` so audio-only implementers (fakes) keep
+     * compiling; the error surfaces on the typed error card like any other
+     * failed resolve.
+     */
+    public suspend fun resolveVideo(
+        videoId: String,
+        force: Boolean = false,
+    ): ResolvedStream = throw ExtractionException.NoFormats(
+        "video resolve unsupported by this resolver"
+    )
 }
