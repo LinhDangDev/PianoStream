@@ -32,6 +32,7 @@ import com.pianostream.core.data.settings.SettingsDataStore.ReplayGainMode
 import com.pianostream.core.data.settings.SettingsDataStore.TaskRemovalPolicy
 import com.pianostream.core.data.settings.SettingsDataStore.ThemeMode
 import com.pianostream.core.designsystem.component.SectionHeader
+import androidx.compose.material3.ButtonDefaults
 import com.pianostream.core.designsystem.component.Vinyl
 
 /**
@@ -220,6 +221,7 @@ public fun SettingsScreen(
     if (state.confirmRemoteConfig) {
         AlertDialog(
             onDismissRequest = { viewModel.confirmRemoteConfig(false) },
+            containerColor = Vinyl.BgTop,
             title = { Text("Enable remote config?") },
             text = {
                 Text(
@@ -229,7 +231,10 @@ public fun SettingsScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.confirmRemoteConfig(true) }) {
+                TextButton(
+                    onClick = { viewModel.confirmRemoteConfig(true) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
+                ) {
                     Text("Enable")
                 }
             },
@@ -244,6 +249,7 @@ public fun SettingsScreen(
     if (state.confirmDeleteAll) {
         AlertDialog(
             onDismissRequest = viewModel::cancelDeleteAll,
+            containerColor = Vinyl.BgTop,
             title = { Text("Delete all local data?") },
             text = {
                 Text(
@@ -253,7 +259,10 @@ public fun SettingsScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmDeleteAll) {
+                TextButton(
+                    onClick = viewModel::confirmDeleteAll,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
+                ) {
                     Text(if (state.deleteAllRunning) "Deleting…" else "Delete everything")
                 }
             },

@@ -159,6 +159,7 @@ fun LibraryScreen(
     if (pending != null) {
         AlertDialog(
             onDismissRequest = viewModel::dismissShrink,
+            containerColor = Vinyl.BgTop,
             title = { Text("Fewer discs found") },
             text = {
                 Text(
@@ -168,7 +169,10 @@ fun LibraryScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmShrink) { Text("Remove missing") }
+                TextButton(
+                    onClick = viewModel::confirmShrink,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
+                ) { Text("Remove missing") }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissShrink) { Text("Keep") }
