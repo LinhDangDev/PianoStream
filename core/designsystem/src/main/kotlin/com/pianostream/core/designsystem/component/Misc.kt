@@ -29,7 +29,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
         title,
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
-        color = Aurora.TextPrimary,
+        color = Aurora.Accent,
         modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
 }

@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pianostream.BuildConfig
 import com.pianostream.core.designsystem.component.SectionHeader
+import com.pianostream.core.designsystem.theme.Aurora
 
 /**
  * About — the disclosure surface Phase 5b asserts on (its presence and the
@@ -88,6 +89,6 @@ public fun AboutScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun DisclosureRow(text: String) {
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(text, style = MaterialTheme.typography.bodyMedium)
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = Aurora.TextSecondary)
     }
 }
