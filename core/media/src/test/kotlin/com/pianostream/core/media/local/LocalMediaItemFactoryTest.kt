@@ -129,6 +129,25 @@ class LocalMediaItemFactoryTest {
     }
 
     @Test
+    fun artwork_uri_stamped_for_in_process_readers() = runTest {
+        // content:// can't resolve under Robolectric so artworkData stays
+        // null, but the SAF document URI must still reach the metadata —
+        // vinyl labels and queue thumbs read `mediaMetadata.artworkUri`
+        // (the F9 boundary is ArtworkUrls.sanitize at the read site).
+        val item = factory.build(
+            window(), "disc1", "content://art/front", null, "t", null, null,
+        )
+        assertThat(item.mediaMetadata.artworkUri.toString())
+            .isEqualTo("content://art/front")
+    }
+
+    @Test
+    fun artwork_uri_null_when_disc_has_none() = runTest {
+        val item = factory.build(window(), "d", null, null, "t", null, null)
+        assertThat(item.mediaMetadata.artworkUri).isNull()
+    }
+
+    @Test
     fun cached_artwork_bytes_loaded_from_file() = runTest {
         val jpg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
         artworkDir.mkdirs()
