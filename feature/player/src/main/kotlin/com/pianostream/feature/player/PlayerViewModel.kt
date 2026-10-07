@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.pianostream.core.data.playback.PlaybackRepository
+import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.youtube.api.ExtractionException
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -46,6 +47,10 @@ class PlayerViewModel @Inject constructor(
         val repeatMode: Int = Player.REPEAT_MODE_OFF,
         val queueCount: Int = 0,
         val error: String? = null,
+        /** Current item is YouTube-backed (stream or video URI) — Song/Video toggle applies. */
+        val videoCapable: Boolean = false,
+        /** Current item resolves through the `pianostream://video/` scheme. */
+        val videoMode: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -96,6 +101,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun sync(player: Player) {
+        val mediaId = player.currentMediaItem?.mediaId.orEmpty()
         _state.update {
             it.copy(
                 currentItem = player.currentMediaItem,
@@ -106,6 +112,8 @@ class PlayerViewModel @Inject constructor(
                 shuffle = player.shuffleModeEnabled,
                 repeatMode = player.repeatMode,
                 queueCount = player.mediaItemCount,
+                videoCapable = videoIdOf(mediaId) != null,
+                videoMode = mediaId.startsWith(VIDEO_URI_PREFIX),
             )
         }
     }
@@ -195,8 +203,43 @@ class PlayerViewModel @Inject constructor(
         controller.player.seekTo(index, 0)
     }
 
+    /**
+     * Song/Video toggle (YouTube items only): swaps the current item's
+     * mediaId between `pianostream://stream/` and `pianostream://video/` at
+     * the same queue index, re-seeking to the live position so the switch
+     * is seamless. `VIDEO_URI_PREFIX` mirrors the resolver's `video` host;
+     * local items and redundant toggles return early. A failed video
+     * resolve surfaces through the usual error card.
+     */
+    fun setVideoMode(video: Boolean) {
+        if (!_state.value.connected) return
+        val p = controller.player
+        val index = p.currentMediaItemIndex
+        val item = p.currentMediaItem ?: return
+        val videoId = videoIdOf(item.mediaId) ?: return
+        val wasVideo = item.mediaId.startsWith(VIDEO_URI_PREFIX)
+        if (video == wasVideo) return
+        val newId = if (video) VIDEO_URI_PREFIX + videoId else PianoStreamUri.stream(videoId)
+        val position = p.currentPosition.coerceAtLeast(0)
+        p.replaceMediaItem(index, item.buildUpon().setMediaId(newId).setUri(newId).build())
+        p.seekTo(index, position)
+        _state.update { it.copy(videoMode = video, videoCapable = true) }
+    }
+
     override fun onCleared() {
         ticker?.cancel()
         runCatching { controller.player.removeListener(listener) }
+    }
+
+    private companion object {
+        const val VIDEO_URI_PREFIX: String = "pianostream://video/"
+
+        /** videoId from a `stream` or `video` URI; null for local/other items. */
+        fun videoIdOf(mediaId: String): String? = when {
+            mediaId.startsWith(VIDEO_URI_PREFIX) ->
+                mediaId.removePrefix(VIDEO_URI_PREFIX).takeIf(PianoStreamUri::isValidId)
+            else ->
+                (PianoStreamUri.parse(mediaId) as? PianoStreamUri.Id.Stream)?.videoId
+        }
     }
 }

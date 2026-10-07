@@ -395,14 +395,29 @@ fun ExpandingPlayer(
                                 size = 40.dp,
                                 iconSize = 22.dp,
                             )
-                            Text(
-                                "Playing now",
-                                color = Vinyl.Gold,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.weight(1f),
-                            )
+                            // YouTube items get YTM's Song|Video toggle in
+                            // the header slot; everything else keeps the
+                            // "Playing now" label.
+                            if (state.videoCapable) {
+                                Box(
+                                    Modifier.weight(1f),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    SongVideoToggle(
+                                        videoMode = state.videoMode,
+                                        onChange = viewModel::setVideoMode,
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    "Playing now",
+                                    color = Vinyl.Gold,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                             val repeatOn = state.repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF
                             NeuButton(
                                 icon = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) {
@@ -417,11 +432,18 @@ fun ExpandingPlayer(
                         }
 
                         Spacer(Modifier.height(TableTopGap))
-                        Turntable(
-                            rotation = { artworkRotation.value },
-                            playing = state.isPlaying,
-                            modifier = Modifier.size(tableSize),
-                        )
+                        if (state.videoMode) {
+                            VideoPanel(
+                                player = viewModel.player,
+                                modifier = Modifier.size(tableSize),
+                            )
+                        } else {
+                            Turntable(
+                                rotation = { artworkRotation.value },
+                                playing = state.isPlaying,
+                                modifier = Modifier.size(tableSize),
+                            )
+                        }
 
                         // Side buttons tuck into the platter's lower corners;
                         // title/artist centred between them (per reference).
@@ -542,32 +564,35 @@ fun ExpandingPlayer(
 
                 // ---- morphing label (mini record label -> turntable label) ----
                 // Declared last so it sits on top of the record it lands on.
-                Box(
-                    modifier = Modifier
-                        .offset {
-                            IntOffset(
-                                lerp(miniX, fullX, fraction).roundToInt(),
-                                lerp(miniY, fullY, fraction).roundToInt(),
-                            )
-                        }
-                        .graphicsLayer {
-                            val s = lerp(shrink, 1f, fraction)
-                            scaleX = s
-                            scaleY = s
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                            alpha = fraction
-                        }
-                        .size(labelSizeDp),
-                ) {
-                    // Spin about the label's own centre (the outer layer
-                    // scales from its top-left corner).
-                    VinylLabel(
-                        artwork,
-                        title,
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { rotationZ = artworkRotation.value },
-                    )
+                // No record exists in video mode — no flying label either.
+                if (!state.videoMode) {
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                IntOffset(
+                                    lerp(miniX, fullX, fraction).roundToInt(),
+                                    lerp(miniY, fullY, fraction).roundToInt(),
+                                )
+                            }
+                            .graphicsLayer {
+                                val s = lerp(shrink, 1f, fraction)
+                                scaleX = s
+                                scaleY = s
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                                alpha = fraction
+                            }
+                            .size(labelSizeDp),
+                    ) {
+                        // Spin about the label's own centre (the outer layer
+                        // scales from its top-left corner).
+                        VinylLabel(
+                            artwork,
+                            title,
+                            Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { rotationZ = artworkRotation.value },
+                        )
+                    }
                 }
             }
         }
