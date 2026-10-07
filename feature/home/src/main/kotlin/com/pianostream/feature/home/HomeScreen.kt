@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +39,7 @@ import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.designsystem.component.PlaybackErrorState
 import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
+import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.theme.Aurora
 
 /**
@@ -140,6 +142,10 @@ fun HomeScreen(
                         FilterChip(
                             selected = false,
                             onClick = {},
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = androidx.compose.ui.graphics.Color(0xFF1E1F23),
+                                labelColor = Aurora.TextSecondary,
+                            ),
                             label = { Text(c) },
                         )
                     }

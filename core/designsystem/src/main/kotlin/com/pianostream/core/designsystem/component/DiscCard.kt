@@ -10,28 +10,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import com.pianostream.core.designsystem.art.ArtworkUrls
 import com.pianostream.core.designsystem.theme.Aurora
 
-/** Square artwork card for the discs grid — Aurora glass card. */
+/**
+ * A disc in the grid, drawn as a vinyl record on a neumorphic charcoal
+ * card — the same turntable language as the player.
+ */
 @Composable
 fun DiscCard(
     title: String,
@@ -42,12 +39,20 @@ fun DiscCard(
 ) {
     // Action-first description so a11y announces intent, and the E2E suite
     // can target the card without relying on dynamic titles.
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(20.dp)
     Column(
         modifier = modifier
             .semantics { contentDescription = "Open disc: $title" }
+            .shadow(10.dp, shape, clip = false)
             .clip(shape)
-            .background(Aurora.Glass)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        androidx.compose.ui.graphics.Color(0xFF2A2D32),
+                        androidx.compose.ui.graphics.Color(0xFF1B1C1F),
+                    ),
+                ),
+            )
             .border(0.5.dp, Aurora.Hairline, shape)
             .clickable(onClick = onClick),
     ) {
@@ -55,30 +60,12 @@ fun DiscCard(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                .background(Aurora.SurfaceLight),
+                .padding(14.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            val model = ImageRequest.Builder(LocalContext.current)
-                .data(ArtworkUrls.sanitize(artworkUri))
-                .build()
-            AsyncImage(
-                model = model,
-                contentDescription = "Artwork for $title",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            if (ArtworkUrls.sanitize(artworkUri) == null) {
-                Icon(
-                    Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    tint = Aurora.TextSecondary,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxSize(0.4f),
-                )
-            }
+            VinylDisc(artworkUri, title, Modifier.fillMaxSize())
         }
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text(
                 title,
                 style = MaterialTheme.typography.bodyMedium,

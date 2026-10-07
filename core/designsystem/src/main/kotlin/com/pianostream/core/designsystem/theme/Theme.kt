@@ -12,28 +12,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 /**
- * PianoStream theme — Aurora design language. The curated palettes below are
- * mapped from the Aurora tokens (pure-black canvas, glass surfaces, violet
- * accent). `dynamicColor` still wins when the frozen setting is on (Material
- * You); turn it off in Settings for the full Aurora look.
+ * PianoStream theme — the turntable design language. The curated palettes
+ * below are mapped from the Aurora tokens (charcoal canvas, glass surfaces,
+ * champagne-gold accent). `dynamicColor` still wins when the frozen setting
+ * is on (Material You); turn it off in Settings for the full vinyl look.
  */
 
 private val AuroraDark = darkColorScheme(
-    primary = Color(0xFFB9A6F5),
-    onPrimary = Color(0xFF241A3D),
-    primaryContainer = Color(0xFF3A2F5C),
-    onPrimaryContainer = Color(0xFFE4DBFF),
+    primary = Color(0xFFE2BE98),
+    onPrimary = Color(0xFF3D2C1A),
+    primaryContainer = Color(0xFF57422C),
+    onPrimaryContainer = Color(0xFFF7DFC6),
     secondary = Color(0xFF98989F),
-    onSecondary = Color(0xFF1C1C1E),
-    secondaryContainer = Color(0xFF2C2C2E),
+    onSecondary = Color(0xFF1B1C1F),
+    secondaryContainer = Color(0xFF2E3136),
     onSecondaryContainer = Color(0xFFE4E1E9),
-    tertiary = Color(0xFF9C86E8),
-    onTertiary = Color(0xFF241A3D),
-    background = Color(0xFF000000),
+    tertiary = Color(0xFF9E7E66),
+    onTertiary = Color(0xFF2C1F14),
+    background = Color(0xFF17181B),
     onBackground = Color(0xFFF5F5F7),
-    surface = Color(0xFF000000),
+    surface = Color(0xFF1B1C1F),
     onSurface = Color(0xFFF5F5F7),
-    surfaceVariant = Color(0xFF2C2C2E),
+    surfaceVariant = Color(0xFF2E3136),
     onSurfaceVariant = Color(0xFF98989F),
     error = Color(0xFFFF6961),
     onError = Color(0xFF601410),

@@ -14,9 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,13 +74,13 @@ fun TrackRow(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Icon(
-                    Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    tint = Aurora.TextSecondary,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxSize(0.5f),
+                // No artwork: a mini record reads better than a grey tile.
+                VinylDisc(
+                    artworkUri = null,
+                    title = title,
+                    modifier = Modifier.fillMaxSize(),
+                    labelRatio = 0.42f,
+                    artworkContentDescription = null,
                 )
             }
         }

@@ -12,7 +12,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,6 +32,7 @@ import com.pianostream.core.data.settings.SettingsDataStore.ReplayGainMode
 import com.pianostream.core.data.settings.SettingsDataStore.TaskRemovalPolicy
 import com.pianostream.core.data.settings.SettingsDataStore.ThemeMode
 import com.pianostream.core.designsystem.component.SectionHeader
+import com.pianostream.core.designsystem.component.Vinyl
 
 /**
  * Settings — every frozen `SettingsDataStore` key reachable (C5): Appearance,
@@ -290,7 +293,17 @@ private fun ToggleRow(
                 )
             }
         }
-        Switch(checked = checked, onCheckedChange = onToggle, enabled = enabled)
+        Switch(
+            checked = checked,
+            onCheckedChange = onToggle,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedTrackColor = Vinyl.Gold,
+                checkedThumbColor = Vinyl.BgBottom,
+                uncheckedTrackColor = Vinyl.BgBottom,
+                uncheckedThumbColor = Vinyl.GoldDim,
+            ),
+        )
     }
 }
 
@@ -323,7 +336,7 @@ private fun <T> ChoiceRow(
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
+            color = Vinyl.Gold,
         )
         androidx.compose.material3.DropdownMenu(
             expanded = expanded,
@@ -358,7 +371,16 @@ private fun SliderRow(
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
             Text(valueLabel, style = MaterialTheme.typography.bodyMedium)
         }
-        Slider(value = value, onValueChange = onChange, valueRange = range)
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = range,
+            colors = SliderDefaults.colors(
+                thumbColor = Vinyl.Gold,
+                activeTrackColor = Vinyl.Gold,
+                inactiveTrackColor = Vinyl.BgBottom,
+            ),
+        )
     }
 }
 

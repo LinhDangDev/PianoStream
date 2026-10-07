@@ -20,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
+import com.pianostream.core.designsystem.component.Vinyl
 
 /**
  * Queue sheet over `player.currentTimeline` (M9): rows and actions are inert
@@ -65,6 +66,7 @@ fun QueueSheet(
                             Icon(
                                 Icons.Filled.Delete,
                                 contentDescription = "Remove from queue",
+                                tint = Vinyl.GoldDim,
                             )
                         }
                     },

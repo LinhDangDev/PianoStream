@@ -90,6 +90,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.pianostream.core.designsystem.art.ArtworkUrls
 import com.pianostream.core.designsystem.component.PlaybackErrorState
+import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.component.formatDuration
 import com.pianostream.core.designsystem.theme.Aurora
 import kotlin.math.roundToInt
@@ -575,7 +576,7 @@ fun ExpandingPlayer(
     if (queueOpen) {
         ModalBottomSheet(
             onDismissRequest = { queueOpen = false },
-            containerColor = Aurora.Surface,
+            containerColor = Vinyl.BgTop,
         ) {
             QueueSheet(modifier = Modifier.fillMaxHeight(0.75f))
         }

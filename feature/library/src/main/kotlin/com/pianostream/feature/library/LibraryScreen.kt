@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +35,7 @@ import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.designsystem.component.TrackRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.theme.Aurora
 
 /**
@@ -67,7 +69,10 @@ fun LibraryScreen(
                 body = "Pick the folder holding your discs to build the library.",
             )
             Row(Modifier.padding(16.dp)) {
-                TextButton(onClick = launchPicker) { Text("Pick library folder") }
+                TextButton(
+                    onClick = launchPicker,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
+                ) { Text("Pick library folder") }
             }
         } else {
             state.rootPath?.let {
@@ -82,8 +87,12 @@ fun LibraryScreen(
                 TextButton(
                     onClick = viewModel::rescan,
                     enabled = !state.scanning,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
                 ) { Text(if (state.scanning) "Scanning…" else "Rescan") }
-                TextButton(onClick = viewModel::revokeAccess) { Text("Revoke access") }
+                TextButton(
+                    onClick = viewModel::revokeAccess,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Aurora.TextSecondary),
+                ) { Text("Revoke access") }
             }
             // E2 — the "N new / M removed" completion summary + scan warnings
             // (e.g. "0 discs found — refusing to wipe") must be visible; the
@@ -123,7 +132,7 @@ fun LibraryScreen(
                     Tab(
                         selected = tab == i,
                         onClick = { tab = i },
-                        selectedContentColor = Aurora.TextPrimary,
+                        selectedContentColor = Vinyl.Gold,
                         unselectedContentColor = Aurora.TextSecondary,
                         text = { Text(label) },
                     )

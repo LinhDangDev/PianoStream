@@ -9,10 +9,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,6 +38,8 @@ import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
+import com.pianostream.core.designsystem.component.Vinyl
+import com.pianostream.core.designsystem.theme.Aurora
 
 /**
  * Search — debounced input, scope chips (All / This device / YouTube),
@@ -51,7 +61,19 @@ fun SearchScreen(
             value = state.query,
             onValueChange = viewModel::onQueryChanged,
             placeholder = { Text("Search discs, tracks, YouTube…") },
+            leadingIcon = {
+                Icon(Icons.Outlined.Search, contentDescription = null, tint = Aurora.TextSecondary)
+            },
             singleLine = true,
+            shape = RoundedCornerShape(28.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Vinyl.Gold,
+                unfocusedBorderColor = Aurora.Hairline,
+                cursorColor = Vinyl.Gold,
+                focusedTextColor = Aurora.TextPrimary,
+                unfocusedContainerColor = Color(0xFF1E1F23),
+                focusedContainerColor = Color(0xFF1E1F23),
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -65,6 +87,12 @@ fun SearchScreen(
                 FilterChip(
                     selected = state.scope == scope,
                     onClick = { viewModel.setScope(scope) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = Color(0xFF1E1F23),
+                        labelColor = Aurora.TextSecondary,
+                        selectedContainerColor = Vinyl.Gold.copy(alpha = 0.18f),
+                        selectedLabelColor = Vinyl.Gold,
+                    ),
                     label = {
                         Text(
                             when (scope) {
@@ -87,6 +115,10 @@ fun SearchScreen(
                     FilterChip(
                         selected = false,
                         onClick = { viewModel.onQueryChanged(s) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = Color(0xFF1E1F23),
+                            labelColor = Aurora.TextSecondary,
+                        ),
                         label = { Text(s, maxLines = 1) },
                     )
                 }
@@ -137,7 +169,10 @@ fun SearchScreen(
                     }
                     item {
                         Row(Modifier.padding(horizontal = 16.dp)) {
-                            TextButton(onClick = { viewModel.acceptYoutubeDisclosure() }) {
+                            TextButton(
+                                onClick = { viewModel.acceptYoutubeDisclosure() },
+                                colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
+                            ) {
                                 Text("Enable YouTube search")
                             }
                         }

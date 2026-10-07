@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import com.pianostream.core.designsystem.component.Vinyl
+import com.pianostream.core.designsystem.component.drawVinylRecord
 import kotlin.math.atan2
 import kotlin.math.hypot
 
@@ -61,18 +63,6 @@ import kotlin.math.hypot
  * Marikutsa Andriy, dribbble.com/shots/12239558): charcoal surfaces,
  * champagne-gold accents, spinning record with the artwork as its label.
  */
-internal object Vinyl {
-    val BgTop = Color(0xFF2B2E33)
-    val BgBottom = Color(0xFF17181B)
-    val Face = Color(0xFF26292D)
-    val Gold = Color(0xFFE2BE98)
-    val GoldDim = Color(0xFF9E7E66)
-    val IconTint = Color(0xFFCBA584)
-    const val RECORD_RATIO = 0.90f
-    const val LABEL_RATIO = 0.36f
-    const val MINI_LABEL_RATIO = 0.58f
-    const val RPM_MS = 1_800 // 33⅓ rpm
-}
 
 private val GoldTube = listOf(Color(0xFF9C7556), Color(0xFFF4DEC6), Color(0xFFB98F6C))
 
@@ -158,7 +148,7 @@ internal fun Turntable(
     Box(modifier) {
         Canvas(Modifier.fillMaxSize()) { drawPlatter() }
         Canvas(Modifier.fillMaxSize().graphicsLayer { rotationZ = rotation() }) {
-            drawRecord(size.width / 2f * Vinyl.RECORD_RATIO)
+            drawVinylRecord(size.width / 2f * Vinyl.RECORD_RATIO)
         }
         Canvas(Modifier.fillMaxSize()) { drawSheen(size.width / 2f * Vinyl.RECORD_RATIO) }
         Canvas(Modifier.fillMaxSize()) { drawTonearm(armAngle) }
@@ -178,34 +168,6 @@ private fun DrawScope.drawPlatter() {
     )
     drawCircle(Color(0xFF121315), r * 0.945f)
     drawCircle(Color.White.copy(alpha = 0.05f), r * 0.945f, style = Stroke(1.dp.toPx()))
-}
-
-private fun DrawScope.drawRecord(radius: Float) {
-    drawCircle(
-        Brush.radialGradient(
-            0f to Color(0xFF1C1C1F),
-            0.55f to Color(0xFF0C0C0E),
-            1f to Color(0xFF19191C),
-            center = center,
-            radius = radius,
-        ),
-        radius,
-    )
-    val labelR = radius * Vinyl.LABEL_RATIO
-    val step = 1.7.dp.toPx()
-    var rr = labelR * 1.12f
-    var i = 0
-    while (rr < radius * 0.975f) {
-        val a = if (i % 3 == 0) 0.055f else 0.028f
-        drawCircle(Color.White.copy(alpha = a), rr, style = Stroke(0.6.dp.toPx()))
-        rr += step
-        i++
-    }
-    for (f in floatArrayOf(0.52f, 0.68f, 0.84f)) {
-        drawCircle(Color.Black.copy(alpha = 0.75f), radius * f, style = Stroke(1.6.dp.toPx()))
-    }
-    drawCircle(Color.White.copy(alpha = 0.07f), labelR * 1.05f, style = Stroke(1.2.dp.toPx()))
-    drawCircle(Color.White.copy(alpha = 0.10f), radius, style = Stroke(1.dp.toPx()))
 }
 
 private fun DrawScope.drawSheen(radius: Float) {
@@ -394,7 +356,7 @@ internal fun MiniVinyl(
         modifier.graphicsLayer { rotationZ = rotation() },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.fillMaxSize()) { drawRecord(size.minDimension / 2f) }
+        Canvas(Modifier.fillMaxSize()) { drawVinylRecord(size.minDimension / 2f, size.minDimension / 2f * Vinyl.MINI_LABEL_RATIO) }
         VinylLabel(
             artworkUri,
             title,
