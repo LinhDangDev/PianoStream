@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -56,6 +57,8 @@ fun QueueSheet(
                     subtitle = item.mediaMetadata.artist?.toString(),
                     artworkUri = item.mediaMetadata.artworkUri?.toString(),
                     durationMs = null,
+                    isCurrent = i == player.currentMediaItemIndex,
+                    artworkShape = CircleShape,
                     onClick = { viewModel.playAt(i) },
                     trailing = {
                         IconButton(onClick = { viewModel.removeAt(i) }) {

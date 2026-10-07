@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -46,6 +47,7 @@ fun TrackRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isCurrent: Boolean = false,
+    artworkShape: Shape = RoundedCornerShape(10.dp),
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -61,7 +63,7 @@ fun TrackRow(
         Box(
             Modifier
                 .size(48.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(artworkShape)
                 .background(Aurora.SurfaceLight),
         ) {
             val uri = ArtworkUrls.sanitize(artworkUri)

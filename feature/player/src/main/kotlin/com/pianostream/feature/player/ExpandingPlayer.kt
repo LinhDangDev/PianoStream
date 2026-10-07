@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -27,6 +29,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -47,8 +52,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -66,6 +69,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -266,7 +270,8 @@ fun ExpandingPlayer(
                     }
                 }
 
-                // ---- collapsed dock row ----
+                // ---- collapsed dock row (Spotify Connect mini: circle thumb,
+                // accent title + artist, small prev/next, round play button) ----
                 if (fraction < 0.7f) {
                     Box(
                         Modifier
@@ -278,33 +283,57 @@ fun ExpandingPlayer(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(start = 7.dp, end = 4.dp),
+                                .padding(start = 8.dp, end = 8.dp),
                         ) {
-                            ArtworkBox(artwork, title, Modifier.size(38.dp), 8)
+                            ArtworkBox(artwork, title, Modifier.size(38.dp), 0, circle = true)
                             Spacer(Modifier.width(10.dp))
-                            Text(
-                                title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Aurora.TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            IconButton(onClick = viewModel::playPause) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Aurora.Accent,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (artist.isNotBlank()) {
+                                    Text(
+                                        artist,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Aurora.TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            IconButton(onClick = viewModel::previous, modifier = Modifier.size(34.dp)) {
                                 Icon(
-                                    if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                    tint = Aurora.TextPrimary,
-                                    modifier = Modifier.size(24.dp),
+                                    Icons.Filled.SkipPrevious,
+                                    contentDescription = "Previous track",
+                                    tint = Aurora.TextPrimary.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(20.dp),
                                 )
                             }
-                            IconButton(onClick = viewModel::next) {
+                            IconButton(onClick = viewModel::next, modifier = Modifier.size(34.dp)) {
                                 Icon(
                                     Icons.Filled.SkipNext,
                                     contentDescription = "Next track",
-                                    tint = Aurora.TextPrimary,
-                                    modifier = Modifier.size(26.dp),
+                                    tint = Aurora.TextPrimary.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            IconButton(
+                                onClick = viewModel::playPause,
+                                modifier = Modifier
+                                    .padding(start = 4.dp)
+                                    .size(38.dp)
+                                    .background(Color.White, CircleShape),
+                            ) {
+                                Icon(
+                                    if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (state.isPlaying) "Pause" else "Play",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(22.dp),
                                 )
                             }
                         }
@@ -348,17 +377,20 @@ fun ExpandingPlayer(
                             scaleY = s
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
                             clip = true
-                            shape = RoundedCornerShape(lerp(7f, 16f, fraction).dp)
+                            shape = CircleShape // vinyl-circle artwork
                             shadowElevation = with(density) { lerp(0f, 24f, fraction).dp.toPx() }
                             alpha = fraction
                         }
                         .size(discSizeDp),
                 ) {
-                    ArtworkBox(artwork, title, Modifier.fillMaxSize(), 0)
+                    ArtworkBox(artwork, title, Modifier.fillMaxSize(), 0, circle = true)
                 }
 
                 // ---- expanded content ----
                 if (fraction > 0.05f) {
+                    val statusPad = WindowInsets.statusBars
+                        .asPaddingValues()
+                        .calculateTopPadding()
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -390,68 +422,51 @@ fun ExpandingPlayer(
                             )
                         }
 
-                        // Reserves the region the morphing artwork lands in.
-                        Spacer(
-                            Modifier.height(
-                                with(density) { fullY.toDp() } + discSizeDp - 56.dp,
-                            ),
-                        )
-
-                        // Title / artist.
-                        Column(
+                        // Artwork region the morphing circle lands in, with the
+                        // seek bar + times overlaid on its bottom edge (per
+                        // the reference: bar sits ON the circle, times flank it).
+                        val artMarginDp =
+                            (with(density) { containerWidthPx.toDp() } - discSizeDp) / 2f
+                        // Region bottom must land on the circle's bottom edge:
+                        // subtract the status-bar + grabber heights above it.
+                        Box(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 26.dp),
-                        ) {
-                            Text(
-                                title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Aurora.TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                artist,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Aurora.Accent,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-
-                        Spacer(Modifier.height(16.dp))
-
-                        // Seek.
-                        Column(Modifier.padding(horizontal = 22.dp)) {
-                            Slider(
-                                value = if (state.durationMs > 0) {
-                                    (state.positionMs.toFloat() / state.durationMs)
-                                        .coerceIn(0f, 1f)
-                                } else 0f,
-                                onValueChange = { frac ->
-                                    viewModel.seekTo((frac * state.durationMs).toLong())
-                                },
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Aurora.Accent,
-                                    activeTrackColor = Aurora.Accent,
-                                    inactiveTrackColor = Aurora.SurfaceLight,
+                                .height(
+                                    with(density) { fullY.toDp() } + discSizeDp
+                                        - statusPad - 40.dp,
                                 ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                        ) {
                             Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = artMarginDp - 8.dp),
                             ) {
                                 Text(
                                     formatDuration(state.positionMs),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Aurora.TextSecondary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Aurora.TextPrimary.copy(alpha = 0.9f),
+                                )
+                                ThinTrackBar(
+                                    fraction = if (state.durationMs > 0) {
+                                        (state.positionMs.toFloat() / state.durationMs)
+                                            .coerceIn(0f, 1f)
+                                    } else 0f,
+                                    onChange = {
+                                        if (state.durationMs > 0) {
+                                            viewModel.seekTo((it * state.durationMs).toLong())
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 10.dp),
                                 )
                                 Text(
                                     formatDuration(state.durationMs),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Aurora.TextSecondary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Aurora.TextPrimary.copy(alpha = 0.9f),
                                 )
                             }
                         }
@@ -460,47 +475,94 @@ fun ExpandingPlayer(
                             PlaybackErrorState(message = it, onRetry = viewModel::retryCurrent)
                         }
 
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.weight(1f))
 
-                        // Transport row.
+                        // Frosted control card: accent title + artist | prev/next
+                        // | white round play button (per reference).
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(Aurora.Glass)
+                                .border(0.5.dp, Aurora.Hairline, RoundedCornerShape(22.dp))
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                         ) {
-                            IconButton(onClick = viewModel::toggleShuffle) {
-                                Icon(
-                                    Icons.Filled.Shuffle,
-                                    contentDescription = if (state.shuffle) "Shuffle on" else "Shuffle off",
-                                    tint = if (state.shuffle) Aurora.Accent else Aurora.TextSecondary,
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Aurora.Accent,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    artist.ifBlank { "Unknown artist" },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Aurora.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            IconButton(onClick = viewModel::previous, modifier = Modifier.size(48.dp)) {
+                            IconButton(onClick = viewModel::previous, modifier = Modifier.size(38.dp)) {
                                 Icon(
                                     Icons.Filled.SkipPrevious,
                                     contentDescription = "Previous track",
-                                    tint = Aurora.TextPrimary,
-                                    modifier = Modifier.size(30.dp),
+                                    tint = Aurora.TextPrimary.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            IconButton(onClick = viewModel::next, modifier = Modifier.size(38.dp)) {
+                                Icon(
+                                    Icons.Filled.SkipNext,
+                                    contentDescription = "Next track",
+                                    tint = Aurora.TextPrimary.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(22.dp),
                                 )
                             }
                             IconButton(
                                 onClick = viewModel::playPause,
                                 modifier = Modifier
-                                    .size(64.dp)
-                                    .background(Aurora.Accent, CircleShape),
+                                    .size(52.dp)
+                                    .background(Color.White, CircleShape),
                             ) {
                                 Icon(
                                     if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                     contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                    tint = Aurora.onAccent,
-                                    modifier = Modifier.size(36.dp),
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(28.dp),
                                 )
                             }
-                            IconButton(onClick = viewModel::next, modifier = Modifier.size(48.dp)) {
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+
+                        // Bottom row: shuffle / queue / repeat.
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 40.dp),
+                        ) {
+                            IconButton(onClick = viewModel::toggleShuffle) {
                                 Icon(
-                                    Icons.Filled.SkipNext,
-                                    contentDescription = "Next track",
-                                    tint = Aurora.TextPrimary,
-                                    modifier = Modifier.size(30.dp),
+                                    Icons.Filled.Shuffle,
+                                    contentDescription = if (state.shuffle) "Shuffle on" else "Shuffle off",
+                                    tint = if (state.shuffle) {
+                                        Aurora.Accent
+                                    } else Aurora.TextPrimary.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            IconButton(onClick = { queueOpen = true }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.QueueMusic,
+                                    contentDescription = "Open play queue",
+                                    tint = Aurora.TextPrimary.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(22.dp),
                                 )
                             }
                             IconButton(onClick = viewModel::cycleRepeat) {
@@ -513,18 +575,13 @@ fun ExpandingPlayer(
                                     contentDescription = "Repeat mode",
                                     tint = if (state.repeatMode !=
                                         androidx.media3.common.Player.REPEAT_MODE_OFF
-                                    ) Aurora.Accent else Aurora.TextSecondary,
+                                    ) Aurora.Accent else Aurora.TextPrimary.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(22.dp),
                                 )
                             }
                         }
 
-                        IconButton(onClick = { queueOpen = true }, modifier = Modifier.size(48.dp)) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.QueueMusic,
-                                contentDescription = "Open play queue",
-                                tint = Aurora.TextSecondary,
-                            )
-                        }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
@@ -548,8 +605,9 @@ private fun ArtworkBox(
     title: String,
     modifier: Modifier = Modifier,
     corner: Int,
+    circle: Boolean = false,
 ) {
-    val shape = if (corner > 0) RoundedCornerShape(corner.dp) else RoundedCornerShape(0.dp)
+    val shape = if (circle) CircleShape else RoundedCornerShape(corner.dp)
     Box(modifier.clip(shape).background(Aurora.SurfaceLight)) {
         if (artworkUri != null) {
             AsyncImage(
@@ -568,6 +626,55 @@ private fun ArtworkBox(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxSize(0.5f),
+            )
+        }
+    }
+}
+
+/** Apple's thin progress slider (ported from Melody, ported from Cue, MIT):
+ *  3.5dp white track + small knob, tap or drag to seek. */
+@Composable
+private fun ThinTrackBar(
+    fraction: Float,
+    onChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier.height(28.dp)) {
+        androidx.compose.foundation.Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(3.5.dp)
+                .align(Alignment.Center)
+                .pointerInput(Unit) {
+                    detectTapGestures { o -> onChange((o.x / size.width).coerceIn(0f, 1f)) }
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, _ ->
+                        change.consume()
+                        onChange((change.position.x / size.width).coerceIn(0f, 1f))
+                    }
+                },
+        ) {
+            drawRoundRect(
+                Color.White.copy(alpha = 0.22f),
+                size = androidx.compose.ui.geometry.Size(size.width, size.height),
+                cornerRadius = CornerRadius(size.height / 2),
+            )
+            drawRoundRect(
+                Color.White,
+                size = androidx.compose.ui.geometry.Size(
+                    size.width * fraction.coerceIn(0f, 1f),
+                    size.height,
+                ),
+                cornerRadius = CornerRadius(size.height / 2),
+            )
+            drawCircle(
+                Color.White,
+                radius = 4.5.dp.toPx(),
+                center = androidx.compose.ui.geometry.Offset(
+                    size.width * fraction.coerceIn(0f, 1f),
+                    size.height / 2,
+                ),
             )
         }
     }
