@@ -349,7 +349,7 @@ private fun ToggleRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = Aurora.TextPrimary)
             subtitle?.let {
                 Text(
                     it,
@@ -390,7 +390,7 @@ private fun <T> ChoiceRow(
             .clickable { expanded = true }
             .padding(horizontal = 16.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
+        Text(title, style = MaterialTheme.typography.bodyLarge, color = Aurora.TextPrimary)
         subtitle?.let {
             Text(
                 it,
@@ -442,7 +442,7 @@ private fun SliderRow(
             .padding(horizontal = 16.dp),
     ) {
         Row(Modifier.fillMaxWidth()) {
-            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = Aurora.TextPrimary)
             Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = Vinyl.Gold)
         }
         Slider(
