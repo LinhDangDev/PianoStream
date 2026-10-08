@@ -43,10 +43,10 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Loop
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
@@ -132,6 +132,7 @@ fun ExpandingPlayer(
     val artwork = ArtworkUrls.sanitize(item.mediaMetadata.artworkUri?.toString())
 
     var queueOpen by remember { mutableStateOf(false) }
+    var actionsOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val artworkRotation = remember { Animatable(0f) }
@@ -421,33 +422,15 @@ fun ExpandingPlayer(
                                     modifier = Modifier.weight(1f),
                                 )
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                NeuButton(
-                                    icon = if (state.isFavorite) {
-                                        Icons.Filled.Favorite
-                                    } else Icons.Filled.FavoriteBorder,
-                                    contentDescription = if (state.isFavorite) {
-                                        "Remove from collection"
-                                    } else "Save to collection",
-                                    onClick = viewModel::toggleFavorite,
-                                    size = 40.dp,
-                                    iconSize = 20.dp,
-                                    tint = if (state.isFavorite) Vinyl.Gold else Vinyl.GoldDim,
-                                )
-                                val repeatOn = state.repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF
-                                NeuButton(
-                                    // Loop glyph (circular arrows) reads
-                                    // clearly apart from Shuffle's X-cross.
-                                    icon = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) {
-                                        Icons.Filled.RepeatOne
-                                    } else Icons.Filled.Loop,
-                                    contentDescription = "Repeat mode",
-                                    onClick = viewModel::cycleRepeat,
-                                    size = 40.dp,
-                                    iconSize = 20.dp,
-                                    tint = if (repeatOn) Vinyl.Gold else Vinyl.GoldDim,
-                                )
-                            }
+                            // Spotify's ⋯ opens a track-actions sheet.
+                            NeuButton(
+                                icon = Icons.Filled.MoreVert,
+                                contentDescription = "Track actions",
+                                onClick = { actionsOpen = true },
+                                size = 40.dp,
+                                iconSize = 22.dp,
+                                tint = Vinyl.GoldDim,
+                            )
                         }
 
                         Spacer(Modifier.height(TableTopGap))
@@ -464,44 +447,24 @@ fun ExpandingPlayer(
                             )
                         }
 
-                        // Side buttons tuck into the platter's lower corners;
-                        // title/artist centred between them (per reference).
+                        // Spotify-style: title/artist left-aligned under the
+                        // platter, save-to-collection heart on the right edge.
                         Box(
                             Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = TableMargin)
                                 .offset(y = (-26).dp),
                         ) {
-                            NeuButton(
-                                icon = Icons.Filled.Shuffle,
-                                contentDescription = if (state.shuffle) "Shuffle on" else "Shuffle off",
-                                onClick = viewModel::toggleShuffle,
-                                size = 46.dp,
-                                iconSize = 20.dp,
-                                tint = if (state.shuffle) Vinyl.Gold else Vinyl.GoldDim,
-                                modifier = Modifier.align(Alignment.TopStart),
-                            )
-                            NeuButton(
-                                icon = Icons.AutoMirrored.Filled.QueueMusic,
-                                contentDescription = "Open play queue",
-                                onClick = { queueOpen = true },
-                                size = 46.dp,
-                                iconSize = 22.dp,
-                                tint = Vinyl.GoldDim,
-                                modifier = Modifier.align(Alignment.TopEnd),
-                            )
                             Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 48.dp, start = 8.dp, end = 8.dp),
+                                    .padding(top = 44.dp, end = 56.dp),
                             ) {
                                 Text(
                                     title,
                                     color = Vinyl.Gold,
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    textAlign = TextAlign.Center,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -509,12 +472,26 @@ fun ExpandingPlayer(
                                     artist.ifBlank { "Unknown artist" },
                                     color = Vinyl.GoldDim,
                                     fontSize = 16.sp,
-                                    textAlign = TextAlign.Center,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
+                            NeuButton(
+                                icon = if (state.isFavorite) {
+                                    Icons.Filled.Favorite
+                                } else Icons.Filled.FavoriteBorder,
+                                contentDescription = if (state.isFavorite) {
+                                    "Remove from collection"
+                                } else "Save to collection",
+                                onClick = viewModel::toggleFavorite,
+                                size = 44.dp,
+                                iconSize = 22.dp,
+                                tint = if (state.isFavorite) Vinyl.Gold else Vinyl.GoldDim,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(top = 44.dp),
+                            )
                         }
 
                         state.error?.let {
@@ -545,13 +522,23 @@ fun ExpandingPlayer(
 
                         Spacer(Modifier.weight(1f))
 
+                        // Spotify-style transport: one five-button row —
+                        // shuffle | previous | play | next | repeat.
                         Row(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 30.dp),
+                                .padding(horizontal = 24.dp),
                         ) {
+                            NeuButton(
+                                icon = Icons.Filled.Shuffle,
+                                contentDescription = if (state.shuffle) "Shuffle on" else "Shuffle off",
+                                onClick = viewModel::toggleShuffle,
+                                size = 46.dp,
+                                iconSize = 20.dp,
+                                tint = if (state.shuffle) Vinyl.Gold else Vinyl.GoldDim,
+                            )
                             NeuButton(
                                 icon = Icons.Filled.SkipPrevious,
                                 contentDescription = "Previous track",
@@ -575,9 +562,42 @@ fun ExpandingPlayer(
                                 size = 58.dp,
                                 iconSize = 26.dp,
                             )
+                            val repeatOn = state.repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF
+                            NeuButton(
+                                // Loop glyph (circular arrows) reads
+                                // clearly apart from Shuffle's X-cross.
+                                icon = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) {
+                                    Icons.Filled.RepeatOne
+                                } else Icons.Filled.Loop,
+                                contentDescription = "Repeat mode",
+                                onClick = viewModel::cycleRepeat,
+                                size = 46.dp,
+                                iconSize = 20.dp,
+                                tint = if (repeatOn) Vinyl.Gold else Vinyl.GoldDim,
+                            )
                         }
 
-                        Spacer(Modifier.height(28.dp))
+                        // Accessory strip below transport (Spotify's devices /
+                        // share / queue row) — queue is the only one this app
+                        // has, pinned to the right edge like the reference.
+                        Row(
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp, start = 24.dp, end = 24.dp),
+                        ) {
+                            NeuButton(
+                                icon = Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = "Open play queue",
+                                onClick = { queueOpen = true },
+                                size = 40.dp,
+                                iconSize = 20.dp,
+                                tint = Vinyl.GoldDim,
+                            )
+                        }
+
+                        Spacer(Modifier.height(18.dp))
                     }
                 }
 
@@ -623,6 +643,63 @@ fun ExpandingPlayer(
             containerColor = Vinyl.BgTop,
         ) {
             QueueSheet(modifier = Modifier.fillMaxHeight(0.75f))
+        }
+    }
+
+    if (actionsOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { actionsOpen = false },
+            containerColor = Vinyl.BgTop,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            actionsOpen = false
+                            queueOpen = true
+                        }
+                        .padding(horizontal = 24.dp, vertical = 18.dp),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.QueueMusic,
+                        contentDescription = null,
+                        tint = Vinyl.GoldDim,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    Text("Open play queue", color = Aurora.TextPrimary, fontSize = 16.sp)
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.toggleFavorite() }
+                        .padding(horizontal = 24.dp, vertical = 18.dp),
+                ) {
+                    Icon(
+                        if (state.isFavorite) {
+                            Icons.Filled.Favorite
+                        } else Icons.Filled.FavoriteBorder,
+                        contentDescription = null,
+                        tint = if (state.isFavorite) Vinyl.Gold else Vinyl.GoldDim,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        if (state.isFavorite) {
+                            "Remove from collection"
+                        } else "Save to collection",
+                        color = Aurora.TextPrimary,
+                        fontSize = 16.sp,
+                    )
+                }
+            }
         }
     }
 }
