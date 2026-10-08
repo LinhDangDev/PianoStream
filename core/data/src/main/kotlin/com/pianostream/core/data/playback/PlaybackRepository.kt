@@ -2,9 +2,11 @@ package com.pianostream.core.data.playback
 
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * `playback.db` owner — queue, queue cursor, history, favorites
@@ -56,6 +58,32 @@ public interface PlaybackRepository {
     public suspend fun removeFavorite(mediaId: String)
 
     public suspend fun isFavorite(mediaId: String): Boolean
+
+    // --- user playlists ------------------------------------------------------
+    //
+    // The playlist members carry default no-op implementations because the
+    // stub flavor's `FakePlaybackRepository` lives in `app/` (Interface-Frozen,
+    // owned elsewhere) and cannot be extended from this change — with the
+    // defaults it keeps compiling and simply surfaces "no playlists".
+
+    /** Playlists in creation order, each with its current track count. */
+    public fun observePlaylists(): Flow<List<Playlist>> = emptyFlow()
+
+    /** Creates a playlist, returns its id (or -1 when unsupported). */
+    public suspend fun createPlaylist(name: String): Long = -1L
+
+    public suspend fun renamePlaylist(id: Long, name: String) {}
+
+    /** Deletes the playlist; its items cascade away with it. */
+    public suspend fun deletePlaylist(id: Long) {}
+
+    /** The playlist's tracks in `position` order, as queue-ready rows. */
+    public fun observePlaylistTracks(playlistId: Long): Flow<List<QueueItem>> = emptyFlow()
+
+    /** Appends the track to the playlist (re-adding moves it to the end). */
+    public suspend fun addToPlaylist(playlistId: Long, item: QueueItem) {}
+
+    public suspend fun removeFromPlaylist(playlistId: Long, mediaId: String) {}
 
     /**
      * Post-scan reconcile (B1): sets `missing=true` on every queue/history/

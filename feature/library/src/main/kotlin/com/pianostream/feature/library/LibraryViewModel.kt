@@ -10,6 +10,7 @@ import com.pianostream.core.data.library.model.Track
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.MediaSource
+import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.local.scan.LibraryHasher
@@ -56,6 +57,10 @@ class LibraryViewModel @Inject constructor(
         val queue: List<QueueItem> = emptyList(),
         val favorites: List<FavoriteItem> = emptyList(),
         val missingFavorites: Int = 0,
+        val playlists: List<Playlist> = emptyList(),
+        /** Playlist opened in the Playlists tab's detail view, null = list. */
+        val selectedPlaylistId: Long? = null,
+        val playlistTracks: List<QueueItem> = emptyList(),
         val hasRoot: Boolean = false,
         val rootPath: String? = null,
         val scanning: Boolean = false,
@@ -79,13 +84,15 @@ class LibraryViewModel @Inject constructor(
                 playbackRepository.observeFavorites(),
                 playbackRepository.observeQueue(),
                 settings.libraryRootTreeUri,
-            ) { discs, favs, queue, root ->
+                playbackRepository.observePlaylists(),
+            ) { discs, favs, queue, root, playlists ->
                 _state.update {
                     it.copy(
                         discs = discs,
                         favorites = favs,
                         missingFavorites = favs.count { f -> f.missing },
                         queue = queue,
+                        playlists = playlists,
                         hasRoot = !root.isNullOrBlank(),
                         rootPath = root?.let(::displayPath),
                     )
@@ -165,6 +172,67 @@ class LibraryViewModel @Inject constructor(
             }
         }
     }
+
+    // --- user playlists -----------------------------------------------------
+
+    private var playlistTracksJob: kotlinx.coroutines.Job? = null
+
+    /** Opens a playlist's detail view (null backs out to the list). */
+    fun selectPlaylist(id: Long?) {
+        playlistTracksJob?.cancel()
+        _state.update { it.copy(selectedPlaylistId = id, playlistTracks = emptyList()) }
+        if (id != null) {
+            playlistTracksJob = viewModelScope.launch {
+                playbackRepository.observePlaylistTracks(id).collect { tracks ->
+                    _state.update { it.copy(playlistTracks = tracks) }
+                }
+            }
+        }
+    }
+
+    fun createPlaylist(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch { playbackRepository.createPlaylist(name) }
+    }
+
+    fun renameSelectedPlaylist(name: String) {
+        val id = _state.value.selectedPlaylistId ?: return
+        if (name.isBlank()) return
+        viewModelScope.launch { playbackRepository.renamePlaylist(id, name) }
+    }
+
+    /** Deletes the selected playlist and backs out to the list. */
+    fun deleteSelectedPlaylist() {
+        val id = _state.value.selectedPlaylistId ?: return
+        selectPlaylist(null)
+        viewModelScope.launch { playbackRepository.deletePlaylist(id) }
+    }
+
+    fun addToPlaylist(playlistId: Long, item: QueueItem) {
+        viewModelScope.launch { playbackRepository.addToPlaylist(playlistId, item) }
+    }
+
+    /** "New playlist" inside the add-to-playlist sheet: create then add. */
+    fun createPlaylistAndAdd(name: String, item: QueueItem) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val id = playbackRepository.createPlaylist(name)
+            if (id >= 0) playbackRepository.addToPlaylist(id, item)
+        }
+    }
+
+    /** Removes [mediaId] from the playlist open in the detail view. */
+    fun removeFromSelectedPlaylist(mediaId: String) {
+        val id = _state.value.selectedPlaylistId ?: return
+        viewModelScope.launch { playbackRepository.removeFromPlaylist(id, mediaId) }
+    }
+
+    /**
+     * QueueItem for one row of the selected disc — same mediaId derivation
+     * as [discQueue] (CC2); used by the add-to-playlist sheet.
+     */
+    fun trackQueueItem(index: Int): QueueItem? =
+        discQueue(index)?.first?.getOrNull(index)
 
     /** Called when the user picks a SAF tree; returns the error to show (F8). */
     suspend fun onTreePicked(result: PickerResult) {
