@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -37,11 +34,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pianostream.core.data.library.model.Disc
-import com.pianostream.core.designsystem.component.DiscCard
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.QueueItem
@@ -262,40 +260,48 @@ private fun DiscsTab(
     }
     // Loose files land as one-track discs (Singles.kt). Like Apple Music's
     // "Singles & EPs" split they group under their own header once present;
-    // an albums-only library keeps the plain grid.
+    // an albums-only library keeps the plain list.
     val albums = state.discs.filterNot { it.isSingle() }
     val singles = state.discs.filter { it.isSingle() }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(160.dp),
-        contentPadding = PaddingValues(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    // List rows (mini vinyl thumb + title) — denser than the card grid.
+    // The wrapper keeps the "Open disc" contentDescription E2E asserts on
+    // while TrackRow owns the visual row.
+    LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
         if (albums.isNotEmpty() && singles.isNotEmpty()) {
-            item(key = "header-albums", span = { GridItemSpan(maxLineSpan) }) {
-                SectionHeader("Albums")
-            }
+            item(key = "header-albums") { SectionHeader("Albums") }
         }
         items(albums, key = { it.id }) { disc ->
-            DiscCard(
-                title = disc.title,
-                subtitle = disc.performer ?: disc.composer,
-                artworkUri = disc.artworkUri,
-                onClick = { onSelect(disc) },
-            )
-        }
-        if (singles.isNotEmpty()) {
-            item(key = "header-singles", span = { GridItemSpan(maxLineSpan) }) {
-                SectionHeader("Singles")
-            }
-            items(singles, key = { it.id }) { disc ->
-                DiscCard(
+            Box(
+                Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = "Open disc: ${disc.title}"
+                },
+            ) {
+                TrackRow(
                     title = disc.title,
                     subtitle = disc.performer ?: disc.composer,
                     artworkUri = disc.artworkUri,
+                    durationMs = null,
                     onClick = { onSelect(disc) },
-                    isSingle = true,
                 )
+            }
+        }
+        if (singles.isNotEmpty()) {
+            item(key = "header-singles") { SectionHeader("Singles") }
+            items(singles, key = { it.id }) { disc ->
+                Box(
+                    Modifier.semantics(mergeDescendants = true) {
+                        contentDescription = "Open disc: ${disc.title}"
+                    },
+                ) {
+                    TrackRow(
+                        title = disc.title,
+                        subtitle = disc.performer ?: disc.composer,
+                        artworkUri = disc.artworkUri,
+                        durationMs = null,
+                        onClick = { onSelect(disc) },
+                        trailing = { SingleBadge() },
+                    )
+                }
             }
         }
     }
