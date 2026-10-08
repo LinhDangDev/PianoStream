@@ -4,11 +4,14 @@ import com.pianostream.core.data.playback.db.PlaybackDatabase
 import com.pianostream.core.data.playback.db.dao.PlayHistoryDao
 import com.pianostream.core.data.playback.db.entity.FavoriteEntity
 import com.pianostream.core.data.playback.db.entity.PlayHistoryEntity
+import com.pianostream.core.data.playback.db.entity.PlaylistEntity
+import com.pianostream.core.data.playback.db.entity.PlaylistItemEntity
 import com.pianostream.core.data.playback.db.entity.QueueItemEntity
 import com.pianostream.core.data.playback.db.entity.QueueStateEntity
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import javax.inject.Inject
@@ -36,6 +39,8 @@ class PlaybackRepositoryImpl @Inject constructor(
     private val queueDao = db.queueDao()
     private val historyDao = db.playHistoryDao()
     private val favoriteDao = db.favoriteDao()
+    private val playlistDao = db.playlistDao()
+    private val playlistItemDao = db.playlistItemDao()
     private val maintenanceDao = db.maintenanceDao()
 
     // --- queue ----------------------------------------------------------
@@ -130,6 +135,63 @@ class PlaybackRepositoryImpl @Inject constructor(
 
     override suspend fun isFavorite(mediaId: String): Boolean = favoriteDao.exists(mediaId)
 
+    // --- playlists ----------------------------------------------------------
+
+    override fun observePlaylists(): Flow<List<Playlist>> =
+        playlistDao.observeWithCounts().map { rows ->
+            rows.map {
+                Playlist(
+                    id = it.playlist.id,
+                    name = it.playlist.name,
+                    createdAt = it.playlist.createdAt,
+                    trackCount = it.trackCount,
+                )
+            }
+        }
+
+    override suspend fun createPlaylist(name: String): Long =
+        playlistDao.insert(PlaylistEntity(name = name.trim(), createdAt = nowMs()))
+
+    override suspend fun renamePlaylist(id: Long, name: String) {
+        playlistDao.rename(id, name.trim())
+    }
+
+    override suspend fun deletePlaylist(id: Long) = playlistDao.delete(id)
+
+    override fun observePlaylistTracks(playlistId: Long): Flow<List<QueueItem>> =
+        playlistItemDao.observeItems(playlistId).map { rows ->
+            rows.map { e ->
+                QueueItem(
+                    position = e.position,
+                    mediaId = e.mediaId,
+                    title = e.title,
+                    artist = e.artist,
+                    artworkUri = e.artworkUri,
+                    source = MediaSource.valueOf(e.source),
+                    durationMs = null,
+                    addedAt = e.addedAt,
+                )
+            }
+        }
+
+    override suspend fun addToPlaylist(playlistId: Long, item: QueueItem) {
+        playlistItemDao.upsert(
+            PlaylistItemEntity(
+                playlistId = playlistId,
+                mediaId = item.mediaId,
+                position = playlistItemDao.maxPosition(playlistId) + 1,
+                title = item.title,
+                artist = item.artist,
+                artworkUri = item.artworkUri,
+                source = item.source.name,
+                addedAt = nowMs(),
+            ),
+        )
+    }
+
+    override suspend fun removeFromPlaylist(playlistId: Long, mediaId: String) =
+        playlistItemDao.delete(playlistId, mediaId)
+
     // --- reconcile / wipe -------------------------------------------------
 
     override suspend fun reconcileMissing(existingMediaIds: Set<String>) {
@@ -143,6 +205,8 @@ class PlaybackRepositoryImpl @Inject constructor(
         queueDao.deleteQueueState()
         historyDao.deleteAll()
         favoriteDao.deleteAll()
+        playlistItemDao.deleteAll()
+        playlistDao.deleteAll()
         // Room closes/deletes the physical file (-wal/-shm) via the caller's
         // db.close() + File.delete — the rows are gone either way (CC10).
     }

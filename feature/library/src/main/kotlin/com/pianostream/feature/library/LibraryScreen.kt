@@ -1,23 +1,30 @@
 package com.pianostream.feature.library
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -42,12 +49,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pianostream.core.data.library.model.Disc
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.PlaylistAdd
+import androidx.compose.material.icons.outlined.RemoveCircleOutline
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.pianostream.core.designsystem.component.SINGLE_LABEL_RATIO
 import com.pianostream.core.designsystem.component.SingleBadge
@@ -70,6 +82,8 @@ fun LibraryScreen(
     val launchPicker = rememberLibraryRootPicker(viewModel)
     var tab by remember { mutableIntStateOf(0) }
     var actionsOpen by remember { mutableStateOf(false) }
+    /** Track handed to the add-to-playlist sheet; null = sheet closed. */
+    var addToPlaylistItem by remember { mutableStateOf<QueueItem?>(null) }
     val tabs = listOf("Discs", "Tracks", "Composers", "Playlists", "Favorites")
 
     // A single tap on a one-track disc emits a play request (CC1 — the
@@ -215,12 +229,38 @@ fun LibraryScreen(
                             onPlayQueue(rows, start)
                         }
                     },
+                    onAddToPlaylist = { idx ->
+                        viewModel.trackQueueItem(idx)?.let { addToPlaylistItem = it }
+                    },
                 )
                 2 -> ComposersTab(state)
-                3 -> PlaylistsTab(state, onPlayQueue)
-                4 -> FavoritesTab(state, onPlayQueue)
+                3 -> PlaylistsTab(
+                    state,
+                    onSelect = viewModel::selectPlaylist,
+                    onCreate = viewModel::createPlaylist,
+                    onRename = viewModel::renameSelectedPlaylist,
+                    onDelete = viewModel::deleteSelectedPlaylist,
+                    onRemoveTrack = viewModel::removeFromSelectedPlaylist,
+                    onPlayQueue = onPlayQueue,
+                )
+                4 -> FavoritesTab(
+                    state,
+                    onPlayQueue,
+                    onAddToPlaylist = { addToPlaylistItem = it.toQueueItem() },
+                )
             }
         }
+    }
+
+    // "Add to playlist" target sheet — opened from Tracks/Favorites rows.
+    val adding = addToPlaylistItem
+    if (adding != null) {
+        AddToPlaylistSheet(
+            playlists = state.playlists,
+            onPick = { viewModel.addToPlaylist(it.id, adding); addToPlaylistItem = null },
+            onNew = { viewModel.createPlaylistAndAdd(it, adding); addToPlaylistItem = null },
+            onDismiss = { addToPlaylistItem = null },
+        )
     }
 
     val pending = state.pendingShrink
@@ -311,6 +351,7 @@ private fun DiscsTab(
 private fun TracksTab(
     state: LibraryViewModel.UiState,
     onPlayAt: (Int) -> Unit,
+    onAddToPlaylist: (Int) -> Unit,
 ) {
     val disc = state.selectedDisc
     if (disc == null) {
@@ -326,6 +367,15 @@ private fun TracksTab(
                 artworkUri = disc.artworkUri,
                 durationMs = t.endMs?.let { it - t.startMs },
                 onClick = { onPlayAt(idx) },
+                trailing = {
+                    IconButton(onClick = { onAddToPlaylist(idx) }) {
+                        Icon(
+                            Icons.Outlined.PlaylistAdd,
+                            contentDescription = "Add to playlist",
+                            tint = Aurora.TextSecondary,
+                        )
+                    }
+                },
             )
         }
     }
@@ -402,25 +452,300 @@ private fun ComposersTab(state: LibraryViewModel.UiState) {
     }
 }
 
+/**
+ * Playlists — the list view (each row: name + track count, "New playlist"
+ * action up top) or the selected playlist's detail view (back arrow, ⋯
+ * Rename/Delete menu, ordered track rows that play through [onPlayQueue]).
+ */
 @Composable
 private fun PlaylistsTab(
     state: LibraryViewModel.UiState,
+    onSelect: (Long?) -> Unit,
+    onCreate: (String) -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit,
+    onRemoveTrack: (String) -> Unit,
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
 ) {
-    if (state.queue.isEmpty()) {
-        EmptyState("Nothing queued", "Your current playback queue shows here.")
-        return
-    }
-    LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-        itemsIndexed(state.queue, key = { _, q -> q.id }) { idx, q ->
-            TrackRow(
-                title = q.title,
-                subtitle = q.artist,
-                artworkUri = q.artworkUri,
-                durationMs = q.durationMs,
-                onClick = { onPlayQueue(state.queue, idx) },
+    val selectedId = state.selectedPlaylistId
+    if (selectedId == null) {
+        var createOpen by remember { mutableStateOf(false) }
+        Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { createOpen = true }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, tint = Vinyl.Gold)
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "New playlist",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Vinyl.Gold,
+                )
+            }
+            if (state.playlists.isEmpty()) {
+                EmptyState(
+                    "No playlists",
+                    "Create one, then add tracks from Tracks or Favourites.",
+                )
+            } else {
+                LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
+                    items(state.playlists, key = { it.id }) { p ->
+                        TrackRow(
+                            title = p.name,
+                            subtitle = "${p.trackCount} tracks",
+                            artworkUri = null,
+                            durationMs = null,
+                            onClick = { onSelect(p.id) },
+                        )
+                    }
+                }
+            }
+        }
+        if (createOpen) {
+            PlaylistNameDialog(
+                title = "New playlist",
+                confirmLabel = "Create",
+                onConfirm = { onCreate(it); createOpen = false },
+                onDismiss = { createOpen = false },
             )
         }
+        return
+    }
+
+    // Detail view.
+    val playlist = state.playlists.firstOrNull { it.id == selectedId }
+    var menuOpen by remember { mutableStateOf(false) }
+    var renameOpen by remember { mutableStateOf(false) }
+    var deleteOpen by remember { mutableStateOf(false) }
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            IconButton(onClick = { onSelect(null) }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back to playlists",
+                    tint = Aurora.TextSecondary,
+                )
+            }
+            Text(
+                playlist?.name.orEmpty(),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Aurora.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "Playlist actions",
+                        tint = Aurora.TextSecondary,
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    containerColor = Vinyl.BgTop,
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Rename", color = Vinyl.Gold) },
+                        onClick = { menuOpen = false; renameOpen = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete playlist", color = Aurora.TextSecondary) },
+                        onClick = { menuOpen = false; deleteOpen = true },
+                    )
+                }
+            }
+        }
+        if (state.playlistTracks.isEmpty()) {
+            EmptyState(
+                "Empty playlist",
+                "Add tracks from the Tracks or Favourites tabs.",
+            )
+        } else {
+            LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
+                itemsIndexed(state.playlistTracks, key = { _, t -> t.mediaId }) { idx, t ->
+                    TrackRow(
+                        title = t.title,
+                        subtitle = t.artist,
+                        artworkUri = t.artworkUri,
+                        durationMs = t.durationMs,
+                        onClick = { onPlayQueue(state.playlistTracks, idx) },
+                        trailing = {
+                            IconButton(onClick = { onRemoveTrack(t.mediaId) }) {
+                                Icon(
+                                    Icons.Outlined.RemoveCircleOutline,
+                                    contentDescription = "Remove from playlist",
+                                    tint = Aurora.TextSecondary,
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (renameOpen) {
+        PlaylistNameDialog(
+            title = "Rename playlist",
+            initial = playlist?.name.orEmpty(),
+            confirmLabel = "Save",
+            onConfirm = { onRename(it); renameOpen = false },
+            onDismiss = { renameOpen = false },
+        )
+    }
+    if (deleteOpen) {
+        AlertDialog(
+            onDismissRequest = { deleteOpen = false },
+            containerColor = Vinyl.BgTop,
+            title = { Text("Delete playlist?") },
+            text = {
+                Text(
+                    "\"${playlist?.name.orEmpty()}\" and its track list are removed. " +
+                        "This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { deleteOpen = false; onDelete() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Aurora.Error),
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteOpen = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+/**
+ * Name-entry dialog shared by "New playlist" and "Rename" — charcoal card,
+ * gold confirm, same convention as the shrink-confirmation dialog.
+ */
+@Composable
+private fun PlaylistNameDialog(
+    title: String,
+    initial: String = "",
+    confirmLabel: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Vinyl.BgTop,
+        title = { Text(title, color = Aurora.TextPrimary) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                placeholder = { Text("Playlist name", color = Aurora.TextSecondary) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Aurora.TextPrimary,
+                    unfocusedTextColor = Aurora.TextPrimary,
+                    cursorColor = Vinyl.Gold,
+                    focusedBorderColor = Vinyl.Gold,
+                    unfocusedBorderColor = Aurora.Hairline,
+                ),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name.trim()) },
+                enabled = name.isNotBlank(),
+                colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
+            ) { Text(confirmLabel) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+/**
+ * "Add to playlist" sheet — playlists as rows plus a "New playlist" row
+ * that creates-then-adds (mirrors the queue sheet's ModalBottomSheet).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddToPlaylistSheet(
+    playlists: List<Playlist>,
+    onPick: (Playlist) -> Unit,
+    onNew: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var newOpen by remember { mutableStateOf(false) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Vinyl.BgTop,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp),
+        ) {
+            Text(
+                "Add to playlist",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Aurora.TextPrimary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { newOpen = true }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, tint = Vinyl.Gold)
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "New playlist",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Vinyl.Gold,
+                )
+            }
+            playlists.forEach { p ->
+                TrackRow(
+                    title = p.name,
+                    subtitle = "${p.trackCount} tracks",
+                    artworkUri = null,
+                    durationMs = null,
+                    onClick = { onPick(p) },
+                )
+            }
+            if (playlists.isEmpty()) {
+                Text(
+                    "No playlists yet — create one above.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Aurora.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+    if (newOpen) {
+        PlaylistNameDialog(
+            title = "New playlist",
+            confirmLabel = "Create",
+            onConfirm = { onNew(it); newOpen = false },
+            onDismiss = { newOpen = false },
+        )
     }
 }
 
@@ -428,6 +753,7 @@ private fun PlaylistsTab(
 private fun FavoritesTab(
     state: LibraryViewModel.UiState,
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
+    onAddToPlaylist: (FavoriteItem) -> Unit,
 ) {
     Column {
         if (state.missingFavorites > 0) {
@@ -450,6 +776,15 @@ private fun FavoritesTab(
                     artworkUri = f.artworkUri,
                     durationMs = null,
                     onClick = { onPlayQueue(listOf(f.toQueueItem()), 0) },
+                    trailing = {
+                        IconButton(onClick = { onAddToPlaylist(f) }) {
+                            Icon(
+                                Icons.Outlined.PlaylistAdd,
+                                contentDescription = "Add to playlist",
+                                tint = Aurora.TextSecondary,
+                            )
+                        }
+                    },
                 )
             }
         }

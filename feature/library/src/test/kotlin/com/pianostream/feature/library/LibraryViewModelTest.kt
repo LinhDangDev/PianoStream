@@ -11,6 +11,7 @@ import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import com.pianostream.core.data.settings.SettingsDataStore
@@ -72,6 +73,10 @@ class LibraryViewModelTest {
 
     private class FakePlaybackRepo : PlaybackRepository {
         val favs = MutableStateFlow<List<FavoriteItem>>(emptyList())
+        val playlistsFlow = MutableStateFlow<List<Playlist>>(emptyList())
+        val playlistTracks = MutableStateFlow<Map<Long, List<QueueItem>>>(emptyMap())
+        private var nextPlaylistId = 1L
+
         override fun observeQueue(): Flow<List<QueueItem>> = flowOf(emptyList())
         override fun observeQueueState(): Flow<QueueState?> = flowOf(null)
         override suspend fun replaceQueue(items: List<QueueItem>, state: QueueState?) {}
@@ -86,6 +91,44 @@ class LibraryViewModelTest {
         override suspend fun reconcileMissing(existingMediaIds: Set<String>) {}
         override suspend fun clearStreamCache() {}
         override suspend fun clearAll() {}
+
+        override fun observePlaylists(): Flow<List<Playlist>> = playlistsFlow
+
+        override suspend fun createPlaylist(name: String): Long {
+            val id = nextPlaylistId++
+            playlistsFlow.value = playlistsFlow.value +
+                Playlist(id, name.trim(), createdAt = id, trackCount = 0)
+            return id
+        }
+
+        override suspend fun renamePlaylist(id: Long, name: String) {
+            playlistsFlow.value = playlistsFlow.value.map {
+                if (it.id == id) it.copy(name = name.trim()) else it
+            }
+        }
+
+        override suspend fun deletePlaylist(id: Long) {
+            playlistsFlow.value = playlistsFlow.value.filterNot { it.id == id }
+            playlistTracks.value = playlistTracks.value - id
+        }
+
+        override fun observePlaylistTracks(playlistId: Long): Flow<List<QueueItem>> =
+            kotlinx.coroutines.flow.flow {
+                playlistTracks.collect { emit(it[playlistId].orEmpty()) }
+            }
+
+        override suspend fun addToPlaylist(playlistId: Long, item: QueueItem) {
+            val current = playlistTracks.value[playlistId].orEmpty()
+                .filterNot { it.mediaId == item.mediaId }
+            playlistTracks.value = playlistTracks.value +
+                (playlistId to current + item.copy(position = current.size))
+        }
+
+        override suspend fun removeFromPlaylist(playlistId: Long, mediaId: String) {
+            playlistTracks.value = playlistTracks.value +
+                (playlistId to playlistTracks.value[playlistId].orEmpty()
+                    .filterNot { it.mediaId == mediaId })
+        }
     }
 
     private lateinit var settings: SettingsDataStore
@@ -208,5 +251,65 @@ class LibraryViewModelTest {
             Thread.sleep(25); testScheduler.runCurrent()
         }
         assertThat(vm.state.value.missingFavorites).isEqualTo(3)
+    }
+
+    // --- user playlists -----------------------------------------------------
+
+    private fun queueItem(mediaId: String, position: Int = 0) = QueueItem(
+        position = position,
+        mediaId = mediaId,
+        title = "t-$mediaId",
+        artist = null,
+        artworkUri = null,
+        source = MediaSource.LOCAL,
+        durationMs = null,
+        addedAt = 0,
+    )
+
+    /** Polls until [cond] holds — combine also waits on the real DataStore. */
+    private fun TestScope.await(cond: () -> Boolean) {
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (!cond() && System.nanoTime() < deadline) {
+            Thread.sleep(25); testScheduler.runCurrent()
+        }
+    }
+
+    @Test
+    fun `playlists flow into ui state`() = runTest {
+        playback.playlistsFlow.value = listOf(
+            Playlist(1, "Mix", createdAt = 1, trackCount = 2),
+        )
+        val vm = vm()
+        await { vm.state.value.playlists.size == 1 }
+        assertThat(vm.state.value.playlists.single().name).isEqualTo("Mix")
+    }
+
+    @Test
+    fun `selecting a playlist exposes its tracks then backs out`() = runTest {
+        playback.playlistsFlow.value = listOf(Playlist(7, "P", 1, 2))
+        playback.playlistTracks.value = mapOf(
+            7L to listOf(queueItem("pianostream://local/a"), queueItem("pianostream://local/b", 1)),
+        )
+        val vm = vm()
+        vm.selectPlaylist(7)
+        await { vm.state.value.playlistTracks.size == 2 }
+        assertThat(vm.state.value.selectedPlaylistId).isEqualTo(7)
+        assertThat(vm.state.value.playlistTracks.map { it.mediaId })
+            .containsExactly("pianostream://local/a", "pianostream://local/b").inOrder()
+        vm.selectPlaylist(null)
+        advanceUntilIdle()
+        assertThat(vm.state.value.playlistTracks).isEmpty()
+    }
+
+    @Test
+    fun `createPlaylistAndAdd creates then adds the track`() = runTest {
+        val vm = vm()
+        vm.createPlaylistAndAdd("Road", queueItem("pianostream://local/x"))
+        await { vm.state.value.playlists.size == 1 }
+        assertThat(vm.state.value.playlists.single().name).isEqualTo("Road")
+        vm.selectPlaylist(1)
+        await { vm.state.value.playlistTracks.isNotEmpty() }
+        assertThat(vm.state.value.playlistTracks.single().mediaId)
+            .isEqualTo("pianostream://local/x")
     }
 }
