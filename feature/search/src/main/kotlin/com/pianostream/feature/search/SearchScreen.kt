@@ -205,6 +205,15 @@ fun SearchScreen(
                         }
                     }
                 } else {
+                    // A failed call must not read as "No results".
+                    if (state.youtubeError && state.youtubeItems.isEmpty() && !state.searching) {
+                        item {
+                            EmptyState(
+                                title = "Couldn't reach YouTube",
+                                body = "Check your connection, then try again.",
+                            )
+                        }
+                    }
                     items(state.youtubeItems, key = { it.videoId ?: it.title }) { item ->
                         val favMediaId = item.videoId?.let(PianoStreamUri::stream)
                         TrackRow(
@@ -236,6 +245,16 @@ fun SearchScreen(
                             },
                         )
                     }
+                }
+            } else if (state.scope == SearchViewModel.Scope.YOUTUBE) {
+                // The "This device only" setting hides YouTube entirely —
+                // say so instead of silently showing "No results".
+                item { SectionHeader("YouTube") }
+                item {
+                    EmptyState(
+                        title = "YouTube search is off",
+                        body = "Turn off ‘This device only’ in Settings to stream YouTube Music.",
+                    )
                 }
             }
         }

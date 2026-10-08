@@ -65,6 +65,7 @@ class SearchViewModel @Inject constructor(
         val searching: Boolean = false,
         val youtubeOptedIn: Boolean = false,
         val youtubeEnabled: Boolean = false,
+        val youtubeError: Boolean = false,
         val suggestionsEnabled: Boolean = false,
         val online: Boolean = true,
         /** mediaIds currently saved to the collection — heart state per row. */
@@ -214,10 +215,18 @@ class SearchViewModel @Inject constructor(
                             youtubeItems = page.sections
                                 .flatMap { s2 -> s2.items }
                                 .distinctBy { item -> item.videoId ?: item.title },
+                            youtubeError = false,
                         )
                     }
                 }.onFailure {
-                    _state.update { it.copy(youtubeItems = emptyList()) }
+                    // Silent failure read as "No results" — surface a flag so
+                    // the section can say the call failed, not that YouTube
+                    // has nothing. ExtractionException messages are redacted.
+                    android.util.Log.w(
+                        "SearchViewModel",
+                        "YouTube search failed: ${it.javaClass.simpleName}: ${it.message}",
+                    )
+                    _state.update { s2 -> s2.copy(youtubeItems = emptyList(), youtubeError = true) }
                 }
                 if (suggestionsOn && s.scope == Scope.YOUTUBE) {
                     runCatching { youTubeClient.suggestions(query) }
@@ -225,7 +234,11 @@ class SearchViewModel @Inject constructor(
                 }
             } else {
                 _state.update {
-                    it.copy(youtubeItems = emptyList(), suggestions = emptyList())
+                    it.copy(
+                        youtubeItems = emptyList(),
+                        suggestions = emptyList(),
+                        youtubeError = false,
+                    )
                 }
             }
         } finally {
