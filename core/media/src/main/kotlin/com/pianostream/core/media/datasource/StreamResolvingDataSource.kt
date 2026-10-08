@@ -20,7 +20,8 @@ import kotlinx.coroutines.runBlocking
  *    `googlevideo` URL + headers, substituted into the spec before opening
  *    the real upstream.
  *  - `pianostream://video/<videoId>` → [StreamResolver.resolveVideo] → fresh
- *    muxed mp4 URL — identical substitution, 403-retry and redaction rules.
+ *    adaptive video-only URL (the itag comes from [videoItagProvider] —
+ *    `null` = auto) — identical substitution, 403-retry and redaction rules.
  *  - `pianostream://local/<contentKey>` → the [localResolver] maps the key to
  *    its SAF `content://` FLAC document URI (resolved through `discs`/`tracks`
  *    — the synthetic URI's path is never trusted, CC9).
@@ -42,6 +43,9 @@ class StreamResolvingDataSource(
     /** contentKey → `content://` document URI; the resolver below the cache
      *  never sees local paths. Returns null when the key is dead (B1). */
     private val localResolver: suspend (contentKey: String) -> String?,
+    /** Video-quality tier itag for `video/` resolves; `null` = auto. Read
+     *  per open so a mid-playback quality switch applies on the next source. */
+    private val videoItagProvider: () -> Int? = { null },
 ) : DataSource {
 
     private var openedUpstreamUri: android.net.Uri? = null
@@ -52,6 +56,7 @@ class StreamResolvingDataSource(
         private val upstreamFactory: () -> DataSource,
         private val preferredItag: Int = 251,
         private val localResolver: suspend (String) -> String?,
+        private val videoItagProvider: () -> Int? = { null },
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
             StreamResolvingDataSource(
@@ -59,6 +64,7 @@ class StreamResolvingDataSource(
                 upstreamFactory(),
                 preferredItag,
                 localResolver,
+                videoItagProvider,
             )
     }
 
@@ -99,8 +105,15 @@ class StreamResolvingDataSource(
 
     private fun resolveOrThrow(videoId: String, video: Boolean, force: Boolean) = try {
         runBlocking {
-            if (video) resolver.resolveVideo(videoId, force)
-            else resolver.resolve(videoId, preferredItag, force)
+            if (video) {
+                resolver.resolveVideo(
+                    videoId,
+                    videoItagProvider() ?: StreamResolver.VIDEO_ITAG_AUTO,
+                    force,
+                )
+            } else {
+                resolver.resolve(videoId, preferredItag, force)
+            }
         }
     } catch (e: ExtractionException) {
         // H5 — surface the subtype unchanged as the cause.

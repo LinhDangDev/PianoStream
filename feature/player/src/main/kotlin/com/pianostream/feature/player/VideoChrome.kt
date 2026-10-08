@@ -2,6 +2,7 @@ package com.pianostream.feature.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -12,8 +13,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +37,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import com.pianostream.core.designsystem.component.Vinyl
+import com.pianostream.core.media.video.VideoQualityStore
 
 /**
  * 16:9 video surface that takes the turntable's square slot when the
@@ -58,6 +66,78 @@ internal fun VideoPanel(player: Player?, modifier: Modifier = Modifier) {
                     player = player,
                     surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Quality chip pinned to the video surface's top-right corner — a small
+ * charcoal pill labeled with the current tier ("1080p ▾", "Auto ▾") that
+ * opens a gold-on-charcoal dropdown of [VideoQualityStore.TIERS]. Same
+ * chrome language as [SongVideoToggle] (recessed #0F1012 pill, hairline
+ * border, gold text). Tiers the response lacks are handled at resolve time
+ * (at-or-below pick), so the menu lists every rung.
+ */
+@Composable
+internal fun VideoQualityChip(
+    currentItag: Int?,
+    onSelect: (Int?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Row(
+            modifier = Modifier
+                .height(30.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0xFF0F1012).copy(alpha = 0.88f))
+                .border(
+                    1.dp,
+                    Color.White.copy(alpha = 0.07f),
+                    RoundedCornerShape(50),
+                )
+                .clickable(onClickLabel = "Choose video quality") { open = true }
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "${VideoQualityStore.labelFor(currentItag)} ▾",
+                color = Vinyl.Gold,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            containerColor = Color(0xFF141518),
+            tonalElevation = 0.dp,
+            shadowElevation = 8.dp,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.border(
+                1.dp,
+                Color.White.copy(alpha = 0.07f),
+                RoundedCornerShape(14.dp),
+            ),
+        ) {
+            VideoQualityStore.TIERS.forEach { (label, itag) ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            label,
+                            color = if (itag == currentItag) Vinyl.Gold
+                            else Vinyl.GoldDim,
+                            fontSize = 13.sp,
+                            fontWeight = if (itag == currentItag) FontWeight.SemiBold
+                            else FontWeight.Medium,
+                        )
+                    },
+                    onClick = {
+                        open = false
+                        onSelect(itag)
+                    },
                 )
             }
         }
