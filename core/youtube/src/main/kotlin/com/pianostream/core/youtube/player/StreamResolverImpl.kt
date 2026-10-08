@@ -79,10 +79,15 @@ internal class StreamResolverImpl(
 
     override suspend fun resolveVideo(
         videoId: String,
+        preferredItag: Int,
         force: Boolean,
     ): ResolvedStream = resolveKinded(
         videoId,
-        FormatPicker.ALLOWED_VIDEO_ITAGS.first(),
+        if (preferredItag == StreamResolver.VIDEO_ITAG_AUTO) {
+            FormatPicker.ALLOWED_VIDEO_ITAGS.first()
+        } else {
+            preferredItag
+        },
         force,
         Kind.VIDEO,
     )

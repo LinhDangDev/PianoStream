@@ -27,11 +27,20 @@ public interface StreamResolver {
     ): ResolvedStream
 
     /**
-     * Resolves a `videoId` to a muxed progressive video URL
-     * (`pianostream://video/<videoId>` playback): the best format from the
-     * video allow-list (`22` 720p mp4 → `18` 360p mp4). Reuses the same
-     * client fallback, cipher, poToken and cache machinery as [resolve];
-     * [ExtractionException.NoFormats] when no muxed format exists.
+     * Resolves a `videoId` to an adaptive **video-only** URL
+     * (`pianostream://video/<videoId>` playback, merged with a separate audio
+     * stream upstream): the best format from the video allow-list — mp4/h264
+     * `137` 1080p → `136` 720p → `135` 480p → `134` 360p → `133` 240p →
+     * `160` 144p, with webm/vp9 `248`/`247`/`244`/`243`/`242`/`278` as the
+     * same-tier fallback. `preferredItag` pins a tier: the pick is the best
+     * adaptive format at-or-below it (mp4 preferred per tier); pass
+     * [VIDEO_ITAG_AUTO] for the best available adaptive quality. Muxed
+     * progressive `22`/`18` are intentionally excluded — the video child must
+     * stay video-only so the merged source never doubles audio.
+     *
+     * Reuses the same client fallback, cipher, poToken and cache machinery as
+     * [resolve]; [ExtractionException.NoFormats] when no adaptive video
+     * format exists on any client.
      *
      * Default throws `NoFormats` so audio-only implementers (fakes) keep
      * compiling; the error surfaces on the typed error card like any other
@@ -39,8 +48,19 @@ public interface StreamResolver {
      */
     public suspend fun resolveVideo(
         videoId: String,
+        preferredItag: Int = VIDEO_ITAG_AUTO,
         force: Boolean = false,
     ): ResolvedStream = throw ExtractionException.NoFormats(
         "video resolve unsupported by this resolver"
     )
+
+    public companion object {
+        /**
+         * `preferredItag` sentinel for [resolveVideo]: let the resolver pick
+         * the best adaptive quality (equivalent to requesting the top of the
+         * ladder). Distinct from every real itag so implementations can map
+         * it onto their canonical default.
+         */
+        public const val VIDEO_ITAG_AUTO: Int = 0
+    }
 }

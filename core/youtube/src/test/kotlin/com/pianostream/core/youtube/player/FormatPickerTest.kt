@@ -55,30 +55,91 @@ class FormatPickerTest {
     }
 
     @Test
-    fun `pickVideo prefers muxed 22 then 18`() {
-        val out = FormatPicker.pickVideo(listOf(fmt(18), fmt(251), fmt(22)), preferred = 22)
-        assertThat(out!!.itag).isEqualTo(22)
+    fun `pickVideo auto picks the best mp4 adaptive rung`() {
+        // Auto == top of the ladder (137): best mp4 wins over webm and lower tiers.
+        val out = FormatPicker.pickVideo(
+            listOf(fmt(136), fmt(248), fmt(137), fmt(251)),
+            preferred = 137,
+        )
+        assertThat(out!!.itag).isEqualTo(137)
     }
 
     @Test
-    fun `pickVideo falls back to 18 when 22 absent`() {
-        val out = FormatPicker.pickVideo(listOf(fmt(251), fmt(18), fmt(140)), preferred = 22)
-        assertThat(out!!.itag).isEqualTo(18)
-    }
-
-    @Test
-    fun `pickVideo preferred override wins over canonical order`() {
-        val out = FormatPicker.pickVideo(listOf(fmt(22), fmt(18)), preferred = 18)
-        assertThat(out!!.itag).isEqualTo(18)
-    }
-
-    @Test
-    fun `pickVideo rejects non-muxed and audio-only itags`() {
-        // 251/140 are audio allow-list but not muxed video; 137/136 are
-        // video-only adaptive (no audio track — not progressive).
+    fun `pickVideo never picks muxed or audio itags`() {
+        // 22/18 are muxed progressive (double audio inside the merged
+        // source), 251/140 are audio-only — the video path rejects all four.
         assertThat(
-            FormatPicker.pickVideo(listOf(fmt(251), fmt(140), fmt(137), fmt(136)), preferred = 22)
+            FormatPicker.pickVideo(
+                listOf(fmt(22), fmt(18), fmt(251), fmt(140)),
+                preferred = 137,
+            ),
         ).isNull()
-        assertThat(FormatPicker.pickVideo(emptyList(), preferred = 22)).isNull()
+        assertThat(FormatPicker.pickVideo(emptyList(), preferred = 137)).isNull()
+    }
+
+    @Test
+    fun `pickVideo at-or-below preferred tier never upgrades`() {
+        // 720p request on a 1080p+480p shelf → 480p, never the 1080p rungs.
+        val out = FormatPicker.pickVideo(
+            listOf(fmt(137), fmt(248), fmt(135)),
+            preferred = 136,
+        )
+        assertThat(out!!.itag).isEqualTo(135)
+    }
+
+    @Test
+    fun `pickVideo prefers mp4 over webm within a tier`() {
+        val out = FormatPicker.pickVideo(
+            listOf(fmt(247), fmt(136), fmt(134)),
+            preferred = 136,
+        )
+        assertThat(out!!.itag).isEqualTo(136)
+    }
+
+    @Test
+    fun `pickVideo falls back to same-tier webm when mp4 rung absent`() {
+        val out = FormatPicker.pickVideo(
+            listOf(fmt(248), fmt(243), fmt(135)),
+            preferred = 137,
+        )
+        assertThat(out!!.itag).isEqualTo(248)
+    }
+
+    @Test
+    fun `pickVideo exact preferred itag wins over ordering`() {
+        val out = FormatPicker.pickVideo(
+            listOf(fmt(137), fmt(134), fmt(243)),
+            preferred = 243,
+        )
+        assertThat(out!!.itag).isEqualTo(243)
+    }
+
+    @Test
+    fun `pickVideo floors at the lowest available when all tiers are above`() {
+        // 144p request on a 360p-minimum video → lowest adaptive, mp4 first.
+        val out = FormatPicker.pickVideo(
+            listOf(fmt(243), fmt(134), fmt(137)),
+            preferred = 160,
+        )
+        assertThat(out!!.itag).isEqualTo(134)
+    }
+
+    @Test
+    fun `pickVideo preferred outside the ladder behaves like auto`() {
+        val out = FormatPicker.pickVideo(
+            listOf(fmt(136), fmt(248)),
+            preferred = 999,
+        )
+        assertThat(out!!.itag).isEqualTo(248)
+    }
+
+    @Test
+    fun `heightOf maps every ladder itag`() {
+        assertThat(FormatPicker.heightOf(137)).isEqualTo(1080)
+        assertThat(FormatPicker.heightOf(248)).isEqualTo(1080)
+        assertThat(FormatPicker.heightOf(160)).isEqualTo(144)
+        assertThat(FormatPicker.heightOf(278)).isEqualTo(144)
+        assertThat(FormatPicker.heightOf(22)).isNull()
+        assertThat(FormatPicker.heightOf(251)).isNull()
     }
 }

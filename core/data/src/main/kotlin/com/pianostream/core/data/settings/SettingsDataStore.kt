@@ -78,6 +78,7 @@ public class SettingsDataStore internal constructor(
         private val KEY_PREAMP_DB = doublePreferencesKey("preampDb")
         private val KEY_CACHE_BUDGET_BYTES = longPreferencesKey("cacheBudgetBytes")
         private val KEY_PREFERRED_ITAG = intPreferencesKey("preferredItag")
+        private val KEY_VIDEO_ITAG = intPreferencesKey("videoItag")
         private val KEY_CROSSFADE_MS = intPreferencesKey("crossfadeMs")
         private val KEY_TASK_REMOVAL_POLICY = stringPreferencesKey("taskRemovalPolicy")
         private val KEY_LIBRARY_ROOT_TREE_URI = stringPreferencesKey("libraryRootTreeUri")
@@ -142,6 +143,21 @@ public class SettingsDataStore internal constructor(
 
     public suspend fun setPreferredItag(itag: Int) {
         store.edit { it[KEY_PREFERRED_ITAG] = itag }
+    }
+
+    /**
+     * `videoItag` — the user's video-quality pick as an adaptive mp4 ladder
+     * itag (`137`/`136`/`135`/`134`/`133`/`160`). Absent ⇒ auto (best
+     * adaptive). Consumed by `:core:media`'s `VideoQualityStore`, which owns
+     * the in-memory mirror the data-source stack reads per resolve.
+     */
+    public val videoItag: Flow<Int?> =
+        store.data.map { it[KEY_VIDEO_ITAG] }
+
+    public suspend fun setVideoItag(itag: Int?) {
+        store.edit {
+            if (itag == null) it.remove(KEY_VIDEO_ITAG) else it[KEY_VIDEO_ITAG] = itag
+        }
     }
 
     /** `crossfadeMs`, default 2000. */

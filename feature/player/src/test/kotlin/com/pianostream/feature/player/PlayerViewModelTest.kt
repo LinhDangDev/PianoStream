@@ -238,7 +238,11 @@ class PlayerViewModelTest {
         // handler-posted delays ShadowLooper can pump. A TestDispatcher
         // Main would share this runTest's scheduler and its end-of-test
         // advanceUntilIdle would spin on the VM's infinite 1 s ticker.
-        val vm = PlayerViewModel(controller, FakePlaybackRepository())
+        val vm = PlayerViewModel(
+            controller,
+            FakePlaybackRepository(),
+            com.pianostream.core.media.video.VideoQualityStore(),
+        )
         vm.connect()
         ShadowLooper.idleMainLooper()
         return vm

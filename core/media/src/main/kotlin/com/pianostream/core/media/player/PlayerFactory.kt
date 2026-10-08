@@ -7,7 +7,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
 import com.pianostream.core.media.audio.ReplayGainAudioProcessor
 import com.pianostream.core.media.cache.MediaCache
@@ -42,6 +42,7 @@ object PlayerFactory {
         localResolver: suspend (String) -> String?,
         okHttp: OkHttpClient,
         cacheBudgetBytes: Long,
+        videoItagProvider: () -> Int? = { null },
     ): DataSource.Factory {
         val upstreamHttp = OkHttpDataSource.Factory(okHttp.newBuilder().build())
         val localUpstream = DefaultDataSource.Factory(context)
@@ -50,6 +51,7 @@ object PlayerFactory {
             upstreamFactory = { upstreamHttp.createDataSource() },
             preferredItag = preferredItag,
             localResolver = localResolver,
+            videoItagProvider = videoItagProvider,
         )
         val cached = CacheDataSource.Factory()
             .setCache(MediaCache.getInstance(context, cacheBudgetBytes))
@@ -63,6 +65,7 @@ object PlayerFactory {
             upstreamFactory = { localUpstream.createDataSource() },
             preferredItag = preferredItag,
             localResolver = localResolver,
+            videoItagProvider = videoItagProvider,
         )
         return DataSource.Factory {
             SchemeRoutingDataSource(
@@ -111,7 +114,7 @@ object PlayerFactory {
     fun buildSecondary(
         context: Context,
         primaryAudioSessionId: Int,
-        mediaSourceFactory: DefaultMediaSourceFactory,
+        mediaSourceFactory: MediaSource.Factory,
         replayGainProcessor: ReplayGainAudioProcessor?,
     ): ExoPlayer = ExoPlayer.Builder(context)
         .setRenderersFactory(renderersFactory(context, replayGainProcessor))

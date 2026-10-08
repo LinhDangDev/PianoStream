@@ -48,8 +48,8 @@ class StreamResolvingDataSourceTest {
         var nextVideo: (Call) -> ResolvedStream = { call ->
             ResolvedStream(
                 videoId = call.videoId,
-                url = "https://rr1---sn-abc.googlevideo.com/videoplayback?expire=999&itag=22&pot=SECRET&sig=SECRET",
-                itag = 22,
+                url = "https://rr1---sn-abc.googlevideo.com/videoplayback?expire=999&itag=137&pot=SECRET&sig=SECRET",
+                itag = 137,
                 mimeType = "video/mp4",
                 bitrate = 1_500_000,
                 contentLength = 24_000_000,
@@ -73,10 +73,11 @@ class StreamResolvingDataSourceTest {
 
         override suspend fun resolveVideo(
             videoId: String,
+            preferredItag: Int,
             force: Boolean,
         ): ResolvedStream {
-            videoCalls += Call(videoId, 22, force)
-            return nextVideo(Call(videoId, 22, force))
+            videoCalls += Call(videoId, preferredItag, force)
+            return nextVideo(Call(videoId, preferredItag, force))
         }
     }
 
@@ -112,11 +113,13 @@ class StreamResolvingDataSourceTest {
 
     private fun source(
         upstreamSource: RecordingUpstream = upstream,
+        videoItag: Int? = null,
     ) = StreamResolvingDataSource(
         resolver = resolver,
         upstream = upstreamSource,
         preferredItag = 251,
         localResolver = { key -> localCalls += key; "content://documents/disc/$key.flac" },
+        videoItagProvider = { videoItag },
     )
 
     @Before
@@ -195,11 +198,22 @@ class StreamResolvingDataSourceTest {
         source().open(specOf("pianostream://video/dQw4w9WgXcQ"))
         assertThat(resolver.videoCalls).hasSize(1)
         assertThat(resolver.videoCalls[0].force).isFalse()
+        // Null provider → VIDEO_ITAG_AUTO sentinel reaches the resolver.
+        assertThat(resolver.videoCalls[0].itag)
+            .isEqualTo(StreamResolver.VIDEO_ITAG_AUTO)
         assertThat(resolver.calls).isEmpty() // audio resolve untouched
         assertThat(localCalls).isEmpty()
         val opened = upstream.openedSpecs.single()
         assertThat(opened.uri.toString()).startsWith("https://rr1---sn-abc.googlevideo.com/")
-        assertThat(opened.uri.toString()).contains("itag=22")
+        assertThat(opened.uri.toString()).contains("itag=137")
+    }
+
+    @Test
+    fun video_uri_passes_quality_store_itag_to_resolveVideo() {
+        source(videoItag = 136).open(specOf("pianostream://video/dQw4w9WgXcQ"))
+        assertThat(resolver.videoCalls).hasSize(1)
+        assertThat(resolver.videoCalls[0].itag).isEqualTo(136)
+        assertThat(resolver.videoCalls[0].force).isFalse()
     }
 
     @Test

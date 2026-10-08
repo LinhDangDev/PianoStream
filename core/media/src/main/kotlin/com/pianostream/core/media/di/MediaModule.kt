@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.settings.SettingsDataStore
@@ -20,6 +21,8 @@ import com.pianostream.core.media.preload.PreloadPolicy
 import com.pianostream.core.media.queue.QueueAssembler
 import com.pianostream.core.media.queue.QueueStateWriter
 import com.pianostream.core.media.session.PlaybackControllerImpl
+import com.pianostream.core.media.source.VideoMergeMediaSourceFactory
+import com.pianostream.core.media.video.VideoQualityStore
 import com.pianostream.core.youtube.api.StreamResolver
 import dagger.Module
 import dagger.Provides
@@ -53,6 +56,7 @@ object MediaModule {
         localWindowSource: LocalTrackWindowSource,
         settings: SettingsDataStore,
         okHttp: OkHttpClient,
+        videoQualityStore: VideoQualityStore,
     ): DefaultMediaSourceFactory {
         val budget = runBlocking { settings.cacheBudgetBytes.first() }
         val itag = runBlocking { settings.preferredItag.first() }
@@ -66,21 +70,33 @@ object MediaModule {
             },
             okHttp = okHttp,
             cacheBudgetBytes = budget,
+            videoItagProvider = { videoQualityStore.currentItag },
         )
         return DefaultMediaSourceFactory(context).setDataSourceFactory(dsFactory)
     }
+
+    /**
+     * The player-facing factory: `pianostream://video/` items become merged
+     * video-only + audio sources; everything else delegates. Primary gets it
+     * through the preload-manager builder, the crossfade secondary directly.
+     */
+    @Provides
+    @Singleton
+    fun mergedMediaSourceFactory(
+        delegate: DefaultMediaSourceFactory,
+    ): MediaSource.Factory = VideoMergeMediaSourceFactory(delegate)
 
     @Provides
     @Singleton
     fun preloadManagerBuilder(
         @ApplicationContext context: Context,
-        mediaSourceFactory: DefaultMediaSourceFactory,
+        mergedMediaSourceFactory: MediaSource.Factory,
         settings: SettingsDataStore,
         preloadPolicy: PreloadPolicy,
     ): DefaultPreloadManager.Builder {
         val budget = runBlocking { settings.cacheBudgetBytes.first() }
         return DefaultPreloadManager.Builder(context, preloadPolicy)
-            .setMediaSourceFactory(mediaSourceFactory)
+            .setMediaSourceFactory(mergedMediaSourceFactory)
             .setCache(MediaCache.getInstance(context, budget))
     }
 
@@ -124,7 +140,7 @@ object MediaModule {
     @Singleton
     fun crossfadeController(
         @ApplicationContext context: Context,
-        mediaSourceFactory: DefaultMediaSourceFactory,
+        mergedMediaSourceFactory: MediaSource.Factory,
         settings: SettingsDataStore,
         primary: ExoPlayer,
         mediaScope: CoroutineScope,
@@ -134,7 +150,7 @@ object MediaModule {
             PlayerFactory.buildSecondary(
                 context = context,
                 primaryAudioSessionId = primary.audioSessionId,
-                mediaSourceFactory = mediaSourceFactory,
+                mediaSourceFactory = mergedMediaSourceFactory,
                 replayGainProcessor = secondaryGain,
             )
         }

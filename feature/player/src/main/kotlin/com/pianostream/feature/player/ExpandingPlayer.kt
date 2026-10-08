@@ -435,10 +435,19 @@ fun ExpandingPlayer(
 
                         Spacer(Modifier.height(TableTopGap))
                         if (state.videoMode) {
-                            VideoPanel(
-                                player = viewModel.player,
-                                modifier = Modifier.size(tableSize),
-                            )
+                            Box(Modifier.size(tableSize)) {
+                                VideoPanel(
+                                    player = viewModel.player,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                VideoQualityChip(
+                                    currentItag = state.videoQuality,
+                                    onSelect = viewModel::setVideoQuality,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(14.dp),
+                                )
+                            }
                         } else {
                             Turntable(
                                 rotation = { artworkRotation.value },

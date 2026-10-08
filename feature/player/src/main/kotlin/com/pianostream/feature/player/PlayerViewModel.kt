@@ -9,6 +9,7 @@ import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.media.api.PlaybackController
+import com.pianostream.core.media.video.VideoQualityStore
 import com.pianostream.core.youtube.api.ExtractionException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -35,6 +36,7 @@ import kotlinx.coroutines.launch
 class PlayerViewModel @Inject constructor(
     private val controller: PlaybackController,
     private val playbackRepository: PlaybackRepository,
+    private val videoQualityStore: VideoQualityStore,
 ) : ViewModel() {
 
     data class UiState(
@@ -53,6 +55,8 @@ class PlayerViewModel @Inject constructor(
         val videoCapable: Boolean = false,
         /** Current item resolves through the `pianostream://video/` scheme. */
         val videoMode: Boolean = false,
+        /** Video-quality tier itag from `VideoQualityStore` (null = auto). */
+        val videoQuality: Int? = null,
         /** Current item is saved in the collection (favorites). */
         val isFavorite: Boolean = false,
     )
@@ -65,6 +69,11 @@ class PlayerViewModel @Inject constructor(
     private val favoriteIds = MutableStateFlow<Set<String>>(emptySet())
 
     init {
+        scope.launch {
+            videoQualityStore.itag.collect { tag ->
+                _state.update { it.copy(videoQuality = tag) }
+            }
+        }
         scope.launch {
             playbackRepository.observeFavorites().collect { favs ->
                 favoriteIds.value = favs.mapTo(HashSet()) { it.mediaId }
@@ -271,6 +280,27 @@ class PlayerViewModel @Inject constructor(
         p.replaceMediaItem(index, item.buildUpon().setMediaId(newId).setUri(newId).build())
         p.seekTo(index, position)
         _state.update { it.copy(videoMode = video, videoCapable = true) }
+    }
+
+    /**
+     * Quality-menu pick (YouTube items only): stores the new tier itag in
+     * `VideoQualityStore` — every later `pianostream://video/` resolve reads
+     * it — then re-prepares the CURRENT item at the live position so the
+     * video child re-resolves under the new itag (same replace+reseek
+     * pattern as [setVideoMode]). A pick made in Song mode just persists and
+     * applies when the next video source resolves.
+     */
+    fun setVideoQuality(itag: Int?) {
+        if (itag == _state.value.videoQuality) return
+        videoQualityStore.set(itag)
+        if (!_state.value.connected || !_state.value.videoMode) return
+        val p = controller.player
+        val index = p.currentMediaItemIndex
+        val item = p.currentMediaItem ?: return
+        if (!item.mediaId.startsWith(VIDEO_URI_PREFIX)) return
+        val position = p.currentPosition.coerceAtLeast(0)
+        p.replaceMediaItem(index, item)
+        p.seekTo(index, position)
     }
 
     override fun onCleared() {

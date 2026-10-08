@@ -225,33 +225,58 @@ class StreamResolverImplTest {
     }
 
     @Test
-    fun `resolveVideo returns muxed itag 22 mp4`() = runTest {
+    fun `resolveVideo auto returns the best adaptive itag 137 mp4`() = runTest {
         server.enqueue(MockResponse().setBody(fixture("player_response_muxed.json")))
         val s = resolver().resolveVideo("dQw4w9WgXcQ")
-        assertThat(s.itag).isEqualTo(22)
+        assertThat(s.itag).isEqualTo(137)
         assertThat(s.mimeType).contains("video/mp4")
         assertThat(s.url).startsWith("https://rr1---sn-example.googlevideo.com/")
         assertThat(s.toString()).doesNotContain("expire=")
     }
 
     @Test
-    fun `resolveVideo falls back to itag 18 when 22 absent`() = runTest {
-        val only18 = fixture("player_response_muxed.json")
-            .replace("\"itag\": 22", "\"itag\": 18")
-        server.enqueue(MockResponse().setBody(only18))
+    fun `resolveVideo picks the next lower adaptive when the top rung is absent`() = runTest {
+        val only136 = fixture("player_response_muxed.json")
+            .replace("\"itag\": 137", "\"itag\": 136")
+        server.enqueue(MockResponse().setBody(only136))
         val s = resolver().resolveVideo("dQw4w9WgXcQ")
-        assertThat(s.itag).isEqualTo(18)
+        assertThat(s.itag).isEqualTo(136)
     }
 
     @Test
-    fun `resolveVideo throws NoFormats when no muxed format exists`() = runTest {
-        // Audio-only response: adaptiveFormats present but nothing muxed.
-        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
-        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
-        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
-        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
-        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
-        server.enqueue(MockResponse().setBody(fixture("player_response_140only.json")))
+    fun `resolveVideo honors preferredItag at-or-below the tier`() = runTest {
+        // Only 480p sits at-or-below a 720p request (137/251 are unusable).
+        val only480 = fixture("player_response_muxed.json")
+            .replace("\"itag\": 137", "\"itag\": 135")
+        server.enqueue(MockResponse().setBody(only480))
+        val s = resolver().resolveVideo("dQw4w9WgXcQ", preferredItag = 136)
+        assertThat(s.itag).isEqualTo(135)
+    }
+
+    @Test
+    fun `resolveVideo floors at the lowest adaptive above a low request`() = runTest {
+        // 144p request on a video whose lowest adaptive rung is 1080p → 137.
+        server.enqueue(MockResponse().setBody(fixture("player_response_muxed.json")))
+        val s = resolver().resolveVideo("dQw4w9WgXcQ", preferredItag = 160)
+        assertThat(s.itag).isEqualTo(137)
+    }
+
+    @Test
+    fun `resolveVideo rejects a preferred itag outside the video allow-list`() = runTest {
+        val err = runCatching {
+            resolver().resolveVideo("dQw4w9WgXcQ", preferredItag = 22)
+        }.exceptionOrNull()
+        assertThat(err).isInstanceOf(ExtractionException.NoFormats::class.java)
+        assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `resolveVideo throws NoFormats when only muxed formats exist`() = runTest {
+        // Muxed progressive 22/18 are never picked — the merged video child
+        // must be video-only; a response without adaptive video fails through
+        // the same NoFormats path on every client.
+        val muxedOnly = """{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ"},"streamingData":{"formats":[{"itag":22,"url":"https://rr1---sn-example.googlevideo.com/videoplayback?expire=2000000000&id=o-abc&itag=22","mimeType":"video/mp4"},{"itag":18,"url":"https://rr1---sn-example.googlevideo.com/videoplayback?expire=2000000000&id=o-abc&itag=18","mimeType":"video/mp4"}],"adaptiveFormats":[{"itag":251,"url":"https://rr1---sn-example.googlevideo.com/videoplayback?expire=2000000000&id=o-abc&itag=251","mimeType":"audio/webm"}]}}"""
+        repeat(6) { server.enqueue(MockResponse().setBody(muxedOnly)) }
         val err = runCatching { resolver().resolveVideo("dQw4w9WgXcQ") }.exceptionOrNull()
         assertThat(err).isInstanceOf(ExtractionException.NoFormats::class.java)
     }
@@ -263,7 +288,7 @@ class StreamResolverImplTest {
         val r = resolver()
         val video = r.resolveVideo("dQw4w9WgXcQ")
         val audio = r.resolve("dQw4w9WgXcQ") // audio needs its own fetch
-        assertThat(video.itag).isEqualTo(22)
+        assertThat(video.itag).isEqualTo(137)
         assertThat(audio.itag).isEqualTo(251)
         assertThat(server.requestCount).isEqualTo(2)
         // Second video resolve hits the video cache entry.
