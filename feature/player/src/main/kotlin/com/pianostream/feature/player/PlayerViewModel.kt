@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.pianostream.core.data.playback.PlaybackRepository
+import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.youtube.api.ExtractionException
@@ -51,6 +53,8 @@ class PlayerViewModel @Inject constructor(
         val videoCapable: Boolean = false,
         /** Current item resolves through the `pianostream://video/` scheme. */
         val videoMode: Boolean = false,
+        /** Current item is saved in the collection (favorites). */
+        val isFavorite: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -58,6 +62,19 @@ class PlayerViewModel @Inject constructor(
 
     private val scope get() = viewModelScope
     private var ticker: Job? = null
+    private val favoriteIds = MutableStateFlow<Set<String>>(emptySet())
+
+    init {
+        scope.launch {
+            playbackRepository.observeFavorites().collect { favs ->
+                favoriteIds.value = favs.mapTo(HashSet()) { it.mediaId }
+                // refresh heart state for whatever is playing right now
+                _state.update { st ->
+                    st.copy(isFavorite = st.currentItem?.mediaId in favoriteIds.value)
+                }
+            }
+        }
+    }
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
@@ -114,7 +131,37 @@ class PlayerViewModel @Inject constructor(
                 queueCount = player.mediaItemCount,
                 videoCapable = videoIdOf(mediaId) != null,
                 videoMode = mediaId.startsWith(VIDEO_URI_PREFIX),
+                isFavorite = mediaId in favoriteIds.value,
             )
+        }
+    }
+
+    /** Save/remove the playing item in the collection (Favorites tab). */
+    fun toggleFavorite() {
+        val item = _state.value.currentItem ?: return
+        val mediaId = item.mediaId
+        scope.launch {
+            if (mediaId in favoriteIds.value) {
+                playbackRepository.removeFavorite(mediaId)
+            } else {
+                val meta = item.mediaMetadata
+                playbackRepository.addFavorite(
+                    FavoriteItem(
+                        mediaId = mediaId,
+                        title = meta.title?.toString() ?: mediaId,
+                        artist = meta.artist?.toString(),
+                        artworkUri = meta.artworkUri?.toString(),
+                        source = if (mediaId.startsWith("pianostream://local/")) {
+                            MediaSource.LOCAL
+                        } else {
+                            MediaSource.YOUTUBE
+                        },
+                        addedAt = System.currentTimeMillis(),
+                    ),
+                )
+            }
+            // optimistic — observeFavorites will confirm shortly
+            _state.update { it.copy(isFavorite = mediaId !in favoriteIds.value) }
         }
     }
 

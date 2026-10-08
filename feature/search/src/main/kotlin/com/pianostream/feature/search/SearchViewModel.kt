@@ -4,7 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pianostream.core.data.library.LibraryRepository
 import com.pianostream.core.data.library.model.SearchHit
+import com.pianostream.core.data.playback.PlaybackRepository
+import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.settings.SettingsDataStore
+import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.local.scan.LibraryHasher
 import com.pianostream.core.youtube.api.SearchFilter
 import com.pianostream.core.youtube.api.YouTubeClient
@@ -37,6 +41,7 @@ class SearchViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val youTubeClient: YouTubeClient,
     private val settings: SettingsDataStore,
+    private val playbackRepository: PlaybackRepository,
 ) : ViewModel() {
 
     enum class Scope { ALL, LOCAL, YOUTUBE }
@@ -62,6 +67,8 @@ class SearchViewModel @Inject constructor(
         val youtubeEnabled: Boolean = false,
         val suggestionsEnabled: Boolean = false,
         val online: Boolean = true,
+        /** mediaIds currently saved to the collection — heart state per row. */
+        val favoriteIds: Set<String> = emptySet(),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -78,6 +85,11 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             settings.sendSearchSuggestions.collect { on ->
                 _state.update { it.copy(suggestionsEnabled = on) }
+            }
+        }
+        viewModelScope.launch {
+            playbackRepository.observeFavorites().collect { favs ->
+                _state.update { it.copy(favoriteIds = favs.mapTo(HashSet()) { f -> f.mediaId }) }
             }
         }
     }
@@ -105,6 +117,36 @@ class SearchViewModel @Inject constructor(
     fun setScope(scope: Scope) {
         _state.update { it.copy(scope = scope) }
         refresh(_state.value.query)
+    }
+
+    /**
+     * Toggle a row in/out of the collection (Favorites tab). [mediaId] must
+     * be the same `pianostream://` id the row queues with so isFavorite stays
+     * consistent between search rows, the player heart and the tab.
+     */
+    fun toggleFavorite(
+        mediaId: String,
+        title: String,
+        artist: String?,
+        artworkUri: String?,
+        source: MediaSource,
+    ) {
+        viewModelScope.launch {
+            if (mediaId in _state.value.favoriteIds) {
+                playbackRepository.removeFavorite(mediaId)
+            } else {
+                playbackRepository.addFavorite(
+                    FavoriteItem(
+                        mediaId = mediaId,
+                        title = title,
+                        artist = artist,
+                        artworkUri = artworkUri,
+                        source = source,
+                        addedAt = System.currentTimeMillis(),
+                    ),
+                )
+            }
+        }
     }
 
     fun onQueryChanged(query: String) {
@@ -149,12 +191,30 @@ class SearchViewModel @Inject constructor(
             // collector-timing race (localOnlySearch=true ⇒ zero calls).
             val localOnly = settings.localOnlySearch.first()
             val suggestionsOn = settings.sendSearchSuggestions.first()
-            if (!localOnly && s.youtubeOptedIn && s.scope != Scope.LOCAL) {
+            // A pasted YouTube link is affirmative YouTube intent: treat it
+            // as the session opt-in so links "just work".
+            val link = extractYoutubeLink(query)
+            val optedIn = s.youtubeOptedIn || link != null
+            if (link != null) _state.update { it.copy(youtubeOptedIn = true) }
+            if (!localOnly && optedIn && s.scope != Scope.LOCAL) {
                 runCatching {
-                    youTubeClient.search(query, SearchFilter.ALL)
+                    when (link) {
+                        is YoutubeLink.Playlist ->
+                            youTubeClient.browse("VL${link.id}")
+                        else ->
+                            // Server resolves pasted URLs and bare ids alike
+                            // (verified: youtu.be/<id> returns the video).
+                            youTubeClient.search(query, SearchFilter.ALL)
+                    }
                 }.onSuccess { page ->
                     _state.update {
-                        it.copy(youtubeItems = page.sections.flatMap { s2 -> s2.items })
+                        // Dedupe — link searches echo the same videoId many
+                        // times and LazyColumn keys must be unique.
+                        it.copy(
+                            youtubeItems = page.sections
+                                .flatMap { s2 -> s2.items }
+                                .distinctBy { item -> item.videoId ?: item.title },
+                        )
                     }
                 }.onFailure {
                     _state.update { it.copy(youtubeItems = emptyList()) }
@@ -170,6 +230,27 @@ class SearchViewModel @Inject constructor(
             }
         } finally {
             _state.update { it.copy(searching = false) }
+        }
+    }
+
+    private sealed interface YoutubeLink {
+        data class Video(val id: String) : YoutubeLink
+        data class Playlist(val id: String) : YoutubeLink
+    }
+
+    private companion object {
+        val VIDEO_ID = Regex("^[A-Za-z0-9_-]{11}$")
+        val WATCH_URL = Regex("(?:[?&]v=|youtu\\.be/|shorts/|/watch/|embed/)([A-Za-z0-9_-]{11})")
+        val LIST_URL = Regex("[?&]list=([A-Za-z0-9_-]+)")
+
+        /** YouTube link or bare 11-char video id pasted into the box. */
+        fun extractYoutubeLink(query: String): YoutubeLink? {
+            val q = query.trim()
+            if (q.contains("youtube.com") || q.contains("youtu.be")) {
+                LIST_URL.find(q)?.let { return YoutubeLink.Playlist(it.groupValues[1]) }
+            }
+            WATCH_URL.find(q)?.let { return YoutubeLink.Video(it.groupValues[1]) }
+            return if (VIDEO_ID.matches(q)) YoutubeLink.Video(q) else null
         }
     }
 }

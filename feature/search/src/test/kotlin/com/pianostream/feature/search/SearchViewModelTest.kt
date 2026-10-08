@@ -7,6 +7,11 @@ import com.pianostream.core.data.library.model.ScanProgress
 import com.pianostream.core.data.library.model.ScanResult
 import com.pianostream.core.data.library.model.SearchHit
 import com.pianostream.core.data.library.model.Track
+import com.pianostream.core.data.playback.PlaybackRepository
+import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.data.playback.model.QueueState
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.youtube.api.SearchFilter
 import com.pianostream.core.youtube.api.YouTubeClient
@@ -38,6 +43,24 @@ import org.robolectric.RuntimeEnvironment
 class SearchViewModelTest {
 
     private lateinit var mainDispatcher: kotlinx.coroutines.test.TestDispatcher
+    private val playback = FakePlaybackRepository()
+
+    private class FakePlaybackRepository : PlaybackRepository {
+        override fun observeQueue() = flowOf(emptyList<QueueItem>())
+        override fun observeQueueState() = flowOf<QueueState?>(null)
+        override suspend fun replaceQueue(items: List<QueueItem>, state: QueueState?) {}
+        override suspend fun moveQueueItem(fromPosition: Int, toPosition: Int) {}
+        override suspend fun saveQueueCursor(state: QueueState) {}
+        override fun observeHistory() = flowOf(emptyList<PlayHistoryItem>())
+        override suspend fun appendHistory(item: PlayHistoryItem) {}
+        override fun observeFavorites() = flowOf(emptyList<FavoriteItem>())
+        override suspend fun addFavorite(item: FavoriteItem) {}
+        override suspend fun removeFavorite(mediaId: String) {}
+        override suspend fun isFavorite(mediaId: String) = false
+        override suspend fun reconcileMissing(existingMediaIds: Set<String>) {}
+        override suspend fun clearStreamCache() {}
+        override suspend fun clearAll() {}
+    }
 
     private class CountingYouTubeClient : YouTubeClient {
         var searchCalls = 0
@@ -154,7 +177,7 @@ class SearchViewModelTest {
     ): SearchViewModel {
         mainDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(scope.testScheduler)
         Dispatchers.setMain(mainDispatcher)
-        val vm = SearchViewModel(library, youtube, settings)
+        val vm = SearchViewModel(library, youtube, settings, playback)
         scope.advanceUntilIdle()
         return vm
     }

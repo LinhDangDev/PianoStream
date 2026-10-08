@@ -39,7 +39,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -418,17 +421,33 @@ fun ExpandingPlayer(
                                     modifier = Modifier.weight(1f),
                                 )
                             }
-                            val repeatOn = state.repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF
-                            NeuButton(
-                                icon = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) {
-                                    Icons.Filled.RepeatOne
-                                } else Icons.Filled.Repeat,
-                                contentDescription = "Repeat mode",
-                                onClick = viewModel::cycleRepeat,
-                                size = 40.dp,
-                                iconSize = 20.dp,
-                                tint = if (repeatOn) Vinyl.Gold else Vinyl.GoldDim,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                NeuButton(
+                                    icon = if (state.isFavorite) {
+                                        Icons.Filled.Favorite
+                                    } else Icons.Filled.FavoriteBorder,
+                                    contentDescription = if (state.isFavorite) {
+                                        "Remove from collection"
+                                    } else "Save to collection",
+                                    onClick = viewModel::toggleFavorite,
+                                    size = 40.dp,
+                                    iconSize = 20.dp,
+                                    tint = if (state.isFavorite) Vinyl.Gold else Vinyl.GoldDim,
+                                )
+                                val repeatOn = state.repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF
+                                NeuButton(
+                                    // Loop glyph (circular arrows) reads
+                                    // clearly apart from Shuffle's X-cross.
+                                    icon = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) {
+                                        Icons.Filled.RepeatOne
+                                    } else Icons.Filled.Loop,
+                                    contentDescription = "Repeat mode",
+                                    onClick = viewModel::cycleRepeat,
+                                    size = 40.dp,
+                                    iconSize = 20.dp,
+                                    tint = if (repeatOn) Vinyl.Gold else Vinyl.GoldDim,
+                                )
+                            }
                         }
 
                         Spacer(Modifier.height(TableTopGap))

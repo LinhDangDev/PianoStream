@@ -1,5 +1,6 @@
 package com.pianostream.feature.search
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -7,10 +8,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.AlertDialog
@@ -25,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.rememberCoroutineScope
@@ -142,6 +147,11 @@ fun SearchScreen(
             if (state.localHits.isNotEmpty()) {
                 item { SectionHeader("This device") }
                 items(state.localHits, key = { it.trackId }) { hit ->
+                    // Resolve the row's mediaId once so the heart can show
+                    // saved state and toggle the same id the queue plays.
+                    val hitMediaId by produceState<String?>(initialValue = null, hit.trackId) {
+                        value = viewModel.mediaIdFor(hit)
+                    }
                     TrackRow(
                         title = hit.title,
                         subtitle = hit.snippet,
@@ -153,6 +163,23 @@ fun SearchScreen(
                                     onPlayQueue(listOf(hit.toQueueItem(mediaId)), 0)
                                 }
                             }
+                        },
+                        trailing = {
+                            val fav = hitMediaId != null && hitMediaId in state.favoriteIds
+                            Icon(
+                                imageVector = if (fav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = if (fav) "Remove from collection" else "Save to collection",
+                                tint = if (fav) Vinyl.Gold else Vinyl.GoldDim,
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clickable {
+                                        hitMediaId?.let { id ->
+                                            viewModel.toggleFavorite(
+                                                id, hit.title, hit.snippet, null, MediaSource.LOCAL,
+                                            )
+                                        }
+                                    },
+                            )
                         },
                     )
                 }
@@ -179,6 +206,7 @@ fun SearchScreen(
                     }
                 } else {
                     items(state.youtubeItems, key = { it.videoId ?: it.title }) { item ->
+                        val favMediaId = item.videoId?.let(PianoStreamUri::stream)
                         TrackRow(
                             title = item.title,
                             subtitle = item.subtitle,
@@ -187,6 +215,23 @@ fun SearchScreen(
                             onClick = {
                                 item.videoId?.let { vid ->
                                     onPlayQueue(listOf(item.toQueueItem(vid)), 0)
+                                }
+                            },
+                            trailing = {
+                                if (favMediaId != null) {
+                                    val fav = favMediaId in state.favoriteIds
+                                    Icon(
+                                        imageVector = if (fav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                        contentDescription = if (fav) "Remove from collection" else "Save to collection",
+                                        tint = if (fav) Vinyl.Gold else Vinyl.GoldDim,
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clickable {
+                                                viewModel.toggleFavorite(
+                                                    favMediaId, item.title, item.subtitle, item.artworkUri, MediaSource.YOUTUBE,
+                                                )
+                                            },
+                                    )
                                 }
                             },
                         )
