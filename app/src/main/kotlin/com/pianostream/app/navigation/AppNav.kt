@@ -34,6 +34,8 @@ public fun AppNav(
     backStack: NavBackStack<NavKey>,
     /** "Play these rows at position" — MainActivity routes it to AppViewModel.playQueue. */
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
+    /** "Append this row to the queue" — MainActivity routes it to AppViewModel.enqueue. */
+    onEnqueue: (QueueItem) -> Unit,
 ) {
     NavDisplay(
         backStack = backStack,
@@ -47,7 +49,7 @@ public fun AppNav(
                 )
             }
             entry<Route.Search> {
-                SearchScreen(onPlayQueue = onPlayQueue)
+                SearchScreen(onPlayQueue = onPlayQueue, onEnqueue = onEnqueue)
             }
             entry<Route.Library> {
                 LibraryScreen(onPlayQueue = onPlayQueue)

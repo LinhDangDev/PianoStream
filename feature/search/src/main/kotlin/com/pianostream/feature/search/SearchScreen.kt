@@ -13,9 +13,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -33,6 +35,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import kotlinx.coroutines.launch
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,11 +59,14 @@ import com.pianostream.core.designsystem.theme.Aurora
 fun SearchScreen(
     /** Play a queue: rows + start position (C6 — app layer owns the player). */
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
+    /** Append one row to the end of the current queue ("add to queue"). */
+    onEnqueue: (QueueItem) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     Column(modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -165,21 +172,41 @@ fun SearchScreen(
                             }
                         },
                         trailing = {
-                            val fav = hitMediaId != null && hitMediaId in state.favoriteIds
-                            Icon(
-                                imageVector = if (fav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                contentDescription = if (fav) "Remove from collection" else "Save to collection",
-                                tint = if (fav) Vinyl.Gold else Vinyl.GoldDim,
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .clickable {
-                                        hitMediaId?.let { id ->
-                                            viewModel.toggleFavorite(
-                                                id, hit.title, hit.snippet, null, MediaSource.LOCAL,
-                                            )
-                                        }
-                                    },
-                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                hitMediaId?.let { id ->
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                        contentDescription = "Add to queue",
+                                        tint = Vinyl.GoldDim,
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clickable {
+                                                onEnqueue(hit.toQueueItem(id))
+                                                Toast.makeText(
+                                                    context, "Added to queue", Toast.LENGTH_SHORT,
+                                                ).show()
+                                            },
+                                    )
+                                }
+                                val fav = hitMediaId != null && hitMediaId in state.favoriteIds
+                                Icon(
+                                    imageVector = if (fav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                    contentDescription = if (fav) "Remove from collection" else "Save to collection",
+                                    tint = if (fav) Vinyl.Gold else Vinyl.GoldDim,
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clickable {
+                                            hitMediaId?.let { id ->
+                                                viewModel.toggleFavorite(
+                                                    id, hit.title, hit.snippet, null, MediaSource.LOCAL,
+                                                )
+                                            }
+                                        },
+                                )
+                            }
                         },
                     )
                 }
@@ -228,19 +255,39 @@ fun SearchScreen(
                             },
                             trailing = {
                                 if (favMediaId != null) {
-                                    val fav = favMediaId in state.favoriteIds
-                                    Icon(
-                                        imageVector = if (fav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                        contentDescription = if (fav) "Remove from collection" else "Save to collection",
-                                        tint = if (fav) Vinyl.Gold else Vinyl.GoldDim,
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .clickable {
-                                                viewModel.toggleFavorite(
-                                                    favMediaId, item.title, item.subtitle, item.artworkUri, MediaSource.YOUTUBE,
-                                                )
-                                            },
-                                    )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                            contentDescription = "Add to queue",
+                                            tint = Vinyl.GoldDim,
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clickable {
+                                                    item.videoId?.let { vid ->
+                                                        onEnqueue(item.toQueueItem(vid))
+                                                        Toast.makeText(
+                                                            context, "Added to queue", Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                    }
+                                                },
+                                        )
+                                        val fav = favMediaId in state.favoriteIds
+                                        Icon(
+                                            imageVector = if (fav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                            contentDescription = if (fav) "Remove from collection" else "Save to collection",
+                                            tint = if (fav) Vinyl.Gold else Vinyl.GoldDim,
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clickable {
+                                                    viewModel.toggleFavorite(
+                                                        favMediaId, item.title, item.subtitle, item.artworkUri, MediaSource.YOUTUBE,
+                                                    )
+                                                },
+                                        )
+                                    }
                                 }
                             },
                         )

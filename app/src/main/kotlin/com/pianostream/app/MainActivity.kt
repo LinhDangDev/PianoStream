@@ -53,6 +53,7 @@ public class MainActivity : ComponentActivity() {
                             // morphs into the full player (Aurora pattern).
                             appViewModel.playQueue(items, start)
                         },
+                        onEnqueue = { item -> appViewModel.enqueue(listOf(item)) },
                     )
                 }
             }

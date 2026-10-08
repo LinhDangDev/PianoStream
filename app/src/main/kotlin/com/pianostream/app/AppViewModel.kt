@@ -12,6 +12,7 @@ import com.pianostream.core.media.queue.QueueAssembler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -83,6 +84,34 @@ public class AppViewModel @Inject constructor(
             player.setMediaItems(assembled.items, start, 0L)
             player.prepare()
             player.play()
+        }
+    }
+
+    /**
+     * Appends [items] to the END of the current queue ("add to queue"): the
+     * live player gets `addMediaItems`, and the durable queue is rewritten as
+     * (existing rows ++ new rows) so the append survives a cold start (B9).
+     * Never interrupts what's playing — and when the queue was empty the
+     * rows simply sit queued (no auto-play, no prepare).
+     */
+    public fun enqueue(items: List<QueueItem>) {
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            val current = playbackRepository.observeQueue().first()
+            val rows = items.mapIndexed { i, item ->
+                item.copy(position = current.size + i)
+            }
+            val assembled = assembler.assemble(rows)
+            // Persist before touching the player (B9). The cursor is passed
+            // back through unchanged — replaceQueue(null) would delete
+            // queue_state and lose the saved position (H6).
+            val cursor = playbackRepository.observeQueueState().first()
+            runCatching { playbackRepository.replaceQueue(current + rows, cursor) }
+            if (assembled.items.isEmpty()) return@launch
+            // Append to an already-live player only — when not connected, the
+            // M9 cold-start restore inside connect() loads these rows itself,
+            // so addMediaItems here would double-queue them.
+            _player.value?.addMediaItems(assembled.items)
         }
     }
 }
