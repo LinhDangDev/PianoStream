@@ -2,6 +2,7 @@
 package com.pianostream.app.e2e
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.media3.common.util.UnstableApi
@@ -49,6 +50,7 @@ class ColdStartScanE2eTest {
         compose.waitForIdle()
 
         val startMs = System.currentTimeMillis()
+        compose.onNodeWithContentDescription("Library actions").performClick()
         compose.onNodeWithText("Rescan").performClick()
 
         // Completion marker: ground-truth row counts reached. 60 s outer

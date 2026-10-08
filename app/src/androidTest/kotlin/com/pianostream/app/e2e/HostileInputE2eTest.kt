@@ -4,6 +4,7 @@ package com.pianostream.app.e2e
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
@@ -57,6 +58,7 @@ class HostileInputE2eTest {
     private fun rescan() = runBlocking {
         compose.onNodeWithText("Library").performClick()
         compose.waitForIdle()
+        compose.onNodeWithContentDescription("Library actions").performClick()
         compose.onNodeWithText("Rescan").performClick()
     }
 
@@ -124,6 +126,7 @@ class HostileInputE2eTest {
         // stronger signal — a stream built from tampered data would be a fail).
         compose.onNodeWithText("Library").performClick()
         compose.waitForIdle()
+        compose.onNodeWithContentDescription("Library actions").performClick()
         awaitUntil(15_000, "app healthy after tampered config") {
             runCatching {
                 compose.onNodeWithText("Rescan").assertExists()
@@ -175,6 +178,7 @@ class HostileInputE2eTest {
 
         compose.onNodeWithText("Library").performClick()
         compose.waitForIdle()
+        compose.onNodeWithContentDescription("Library actions").performClick()
         compose.onNodeWithText("Rescan").performClick()
 
         // Compliant surfaces (either): explicit grantLost banner, or the M2
@@ -191,6 +195,7 @@ class HostileInputE2eTest {
 
         // F8 revoke action clears the stored root — and must NOT crash when
         // the underlying grant is already gone externally.
+        compose.onNodeWithContentDescription("Library actions").performClick()
         compose.onNodeWithText("Revoke access").performClick()
         compose.waitForIdle()
 

@@ -48,7 +48,7 @@ public fun AboutScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            DisclosureCard(title = "PianoStream", emblem = true) {
+            DisclosureCard(title = "Music", emblem = true) {
                 DisclosureRow(
                     "Local-first playback of your own FLAC+CUE collection and " +
                         "YouTube Music, on-device only. No account, no backend, " +
@@ -144,7 +144,7 @@ private fun DisclosureCard(
             ) {
                 VinylDisc(
                     artworkUri = null,
-                    title = "PianoStream",
+                    title = "Music",
                     modifier = Modifier.size(88.dp),
                     artworkContentDescription = null,
                 )

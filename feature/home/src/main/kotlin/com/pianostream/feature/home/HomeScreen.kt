@@ -68,7 +68,7 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "PianoStream",
+                    "Music",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = Aurora.TextPrimary,

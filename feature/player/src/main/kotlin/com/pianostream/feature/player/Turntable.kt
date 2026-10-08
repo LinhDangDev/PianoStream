@@ -323,7 +323,7 @@ internal fun VinylLabel(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             ) {
                 Text(
-                    "PIANOSTREAM",
+                    "MUSIC",
                     color = Vinyl.Gold,
                     fontSize = 7.sp,
                     letterSpacing = 2.sp,

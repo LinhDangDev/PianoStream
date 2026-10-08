@@ -16,6 +16,10 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
@@ -26,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +48,8 @@ import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.pianostream.core.designsystem.component.SINGLE_LABEL_RATIO
 import com.pianostream.core.designsystem.component.SingleBadge
@@ -64,6 +71,7 @@ fun LibraryScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val launchPicker = rememberLibraryRootPicker(viewModel)
     var tab by remember { mutableIntStateOf(0) }
+    var actionsOpen by remember { mutableStateOf(false) }
     val tabs = listOf("Discs", "Tracks", "Composers", "Playlists", "Favorites")
 
     // A single tap on a one-track disc emits a play request (CC1 — the
@@ -75,6 +83,58 @@ fun LibraryScreen(
     }
 
     Column(modifier.fillMaxSize()) {
+        // Screen header — app name only; library actions hide in the ⋯ menu.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(
+                "Music",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = Aurora.TextPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            if (state.hasRoot) {
+                Box {
+                    IconButton(onClick = { actionsOpen = true }) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "Library actions",
+                            tint = Aurora.TextSecondary,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = actionsOpen,
+                        onDismissRequest = { actionsOpen = false },
+                        containerColor = Vinyl.BgTop,
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (state.scanning) "Scanning…" else "Rescan",
+                                    color = Vinyl.Gold,
+                                )
+                            },
+                            onClick = {
+                                actionsOpen = false
+                                viewModel.rescan()
+                            },
+                            enabled = !state.scanning,
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Revoke access", color = Aurora.TextSecondary) },
+                            onClick = {
+                                actionsOpen = false
+                                viewModel.revokeAccess()
+                            },
+                        )
+                    }
+                }
+            }
+        }
         // F8: grant-loss/error surface — visible regardless of hasRoot.
         state.grantError?.let {
             Text(
@@ -95,25 +155,6 @@ fun LibraryScreen(
                 ) { Text("Pick library folder") }
             }
         } else {
-            state.rootPath?.let {
-                Text(
-                    "Library: $it",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Aurora.TextSecondary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
-            Row(Modifier.padding(horizontal = 8.dp)) {
-                TextButton(
-                    onClick = viewModel::rescan,
-                    enabled = !state.scanning,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
-                ) { Text(if (state.scanning) "Scanning…" else "Rescan") }
-                TextButton(
-                    onClick = viewModel::revokeAccess,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Aurora.TextSecondary),
-                ) { Text("Revoke access") }
-            }
             // E2 — the "N new / M removed" completion summary + scan warnings
             // (e.g. "0 discs found — refusing to wipe") must be visible; the
             // VM computed them but nothing rendered them.

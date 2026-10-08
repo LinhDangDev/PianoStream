@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.media3.common.util.UnstableApi
@@ -50,6 +51,7 @@ class QueueReorderResumeE2eTest {
     private fun rescanAndWait() = runBlocking {
         compose.onNodeWithText("Library").performClick()
         compose.waitForIdle()
+        compose.onNodeWithContentDescription("Library actions").performClick()
         compose.onNodeWithText("Rescan").performClick()
         awaitUntil(60_000, "at least one disc scanned") {
             openDb(libraryDbPath).use { db ->

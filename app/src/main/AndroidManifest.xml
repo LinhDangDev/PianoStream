@@ -13,7 +13,7 @@
 
     <application
         android:name="com.pianostream.app.PianoStreamApp"
-        android:label="PianoStream"
+        android:label="Music"
         android:icon="@drawable/ic_launcher"
         android:theme="@style/Theme.PianoStream"
         android:networkSecurityConfig="@xml/network_security_config"
