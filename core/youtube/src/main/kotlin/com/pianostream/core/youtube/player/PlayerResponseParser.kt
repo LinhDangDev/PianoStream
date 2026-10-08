@@ -31,6 +31,13 @@ internal object PlayerResponseParser {
      *   match the requested one (marks the client unhealthy upstream).
      */
     fun parse(body: JsonObject, expectedVideoId: String): Parsed {
+        // Bot-checked responses (LOGIN_REQUIRED et al.) carry no videoDetails
+        // at all — the status must be read before demanding the videoId echo.
+        val status = body.obj("playabilityStatus")?.str("status")
+        val needsLogin = status == "LOGIN_REQUIRED"
+        if (status != "OK") {
+            return Parsed(emptyList(), playabilityOk = false, requiresPoToken = needsLogin)
+        }
         val respVideoId = body.obj("videoDetails")?.str("videoId")
         if (respVideoId == null || !VIDEO_ID.matches(respVideoId) ||
             respVideoId != expectedVideoId
@@ -39,8 +46,6 @@ internal object PlayerResponseParser {
                 "player response videoId mismatch (expected videoId shape)"
             )
         }
-        val status = body.obj("playabilityStatus")?.str("status")
-        val needsLogin = status == "LOGIN_REQUIRED"
         val streaming = body.obj("streamingData")
         val formats = mutableListOf<FormatPicker.Format>()
         for (key in listOf("formats", "adaptiveFormats")) {

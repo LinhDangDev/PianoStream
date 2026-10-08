@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
  *    loads `about:blank` and destroys the view.
  */
 internal class PoTokenWebView(
-    context: Context,
+    private val context: Context,
     private val onToken: (binding: String, token: String) -> Unit,
 ) {
 
@@ -79,7 +79,33 @@ internal class PoTokenWebView(
                 request: WebResourceRequest,
             ): Boolean {
                 val url = request.url?.toString() ?: return true
+                // JS-interface objects are not injected into pages served via
+                // loadDataWithBaseURL on some WebView builds, so the mint page
+                // can also report its token through this one-way navigation.
+                if (url.startsWith("pianostream://token")) {
+                    val u = android.net.Uri.parse(url)
+                    val binding = u.getQueryParameter("b")
+                    val token = u.getQueryParameter("t")
+                    if (binding != null && token != null &&
+                        binding in setOf("VISITOR", "GVS") &&
+                        isPlausibleToken(token)
+                    ) {
+                        onToken(binding, token)
+                    }
+                    return true
+                }
                 return NAV_ALLOW_LIST.none { url.startsWith(it) }
+            }
+        }
+        wv.webChromeClient = object : android.webkit.WebChromeClient() {
+            override fun onConsoleMessage(
+                consoleMessage: android.webkit.ConsoleMessage,
+            ): Boolean {
+                val msg = consoleMessage.message()
+                if (msg.startsWith("PS:")) {
+                    android.util.Log.d("PoTokenJS", msg)
+                }
+                return true
             }
         }
         @SuppressLint("JavascriptInterface")
@@ -89,11 +115,25 @@ internal class PoTokenWebView(
 
     fun loadMintPage(binding: PoTokenBinding, seed: String) {
         CoroutineScope(Dispatchers.Main).launch {
-            webView.loadUrl(
-                "file:///android_asset/po_token.html?b=${binding.name}&s=$seed"
+            // Serve the bundled page at the youtube.com origin so its fetch
+            // calls pass CORS (att/get is same-origin; jnn-pa allows
+            // youtube.com) — file:// pages have fetch() blocked.
+            val html = context.assets.open("po_token.html")
+                .bufferedReader().use { it.readText() }
+                .replace("__MINT_BINDING__", binding.name)
+                .replace("__MINT_KEY__", jsString(seed))
+            webView.loadDataWithBaseURL(
+                "https://www.youtube.com/",
+                html,
+                "text/html",
+                "utf-8",
+                null,
             )
         }
     }
+
+    private fun jsString(raw: String): String =
+        raw.replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'")
 
     /** Cipher-fallback eval: same host, same lockdown — the only remote-JS
      *  surface in the module (CC8). Runs the EJS-preprocessed code and returns

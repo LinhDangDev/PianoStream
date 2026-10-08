@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,14 @@ fun LibraryScreen(
     val launchPicker = rememberLibraryRootPicker(viewModel)
     var tab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Discs", "Tracks", "Composers", "Playlists", "Favorites")
+
+    // A single tap on a one-track disc emits a play request (CC1 — the
+    // queue still builds from the selected disc's tracks).
+    LaunchedEffect(Unit) {
+        viewModel.playRequests.collect { (rows, start) ->
+            onPlayQueue(rows, start)
+        }
+    }
 
     Column(modifier.fillMaxSize()) {
         // F8: grant-loss/error surface — visible regardless of hasRoot.
@@ -150,7 +159,16 @@ fun LibraryScreen(
                 }
             }
             when (tab) {
-                0 -> DiscsTab(state, onSelect = { viewModel.selectDisc(it) })
+                0 -> DiscsTab(
+                    state,
+                    onSelect = {
+                        viewModel.selectDisc(it)
+                        // Show the selection instead of looking like a no-op:
+                        // albums land on their track list, a single fires the
+                        // play request above and lands here already playing.
+                        tab = 1
+                    },
+                )
                 1 -> TracksTab(
                     state,
                     onPlayAt = { idx ->

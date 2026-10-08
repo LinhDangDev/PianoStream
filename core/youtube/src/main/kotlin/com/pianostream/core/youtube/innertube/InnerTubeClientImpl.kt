@@ -146,12 +146,15 @@ internal class InnerTubeClientImpl(
 
     private fun collectSections(node: JsonObject, out: MutableList<YouTubeSection>) {
         // A section is any musicShelfRenderer / musicCardShelfRenderer /
-        // musicImmersiveCarouselShelfRenderer block with contents.
+        // musicImmersiveCarouselShelfRenderer block with contents. Current
+        // search responses also return itemSectionRenderer containers holding
+        // the same per-item renderer objects directly.
         val shelfRenderers = listOf(
             "musicShelfRenderer",
             "musicCardShelfRenderer",
             "musicImmersiveCarouselShelfRenderer",
             "musicCarouselShelfRenderer",
+            "itemSectionRenderer",
         )
         for (key in shelfRenderers) {
             node[key]?.let { it as? JsonObject }?.let { shelf ->

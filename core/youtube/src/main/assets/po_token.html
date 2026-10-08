@@ -8,9 +8,16 @@
   to youtube.com origins, and the ONLY bridge is the write-only
   PianoStreamTokenBridge.submitToken(binding, token).
 
-  Flow: fetch the BotGuard attestation program via youtubei's att/get (the
-  community-documented mint path), run it inside this page's VM, then submit
-  the produced token. event.origin is checked on every inbound message.
+  Flow (the real BotGuard/webpo protocol, matching BgUtils):
+  1. POST youtubei/v1/att/get → {challenge, bgChallenge{interpreterUrl,
+     interpreterHash, program, globalName}};
+  2. fetch the interpreter JS and inject it — defines window[globalName];
+  3. vm.a(program, setupCb, …) hands back asyncSnapshotFunction;
+  4. snapshot → botguardResponse → POST waa.v1.Waa/GenerateIT with YouTube's
+     public request key → integrityToken;
+  5. webPoSignalOutput[0] is the minter factory → mintCallback(integrityToken)
+     → mint(contentBinding = visitorData | videoId) → websafe-b64 poToken
+  6. submitToken(binding, poToken).
 -->
 <script>
 "use strict";
@@ -22,6 +29,11 @@
         "file://"
     ];
 
+    // YouTube web player's public WAA request key.
+    var REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
+    var WAA_API = "https://jnn-pa.googleapis.com/$rpc/google.internal.waa.v1.Waa/GenerateIT";
+    var WAA_KEY = "AIzaSyDyT5W0Jh49F30Pqqtyfdf7pDLFKLJoAnw";
+
     function originAllowed(o) {
         return ORIGINS.indexOf(o) >= 0;
     }
@@ -30,14 +42,43 @@
         // No bridge for failures on purpose — the bridge is write-only for
         // tokens. The caller relies on its own mint deadline.
         window.__poTokenError = String(msg);
+        try { console.log("PS: FAIL " + msg); } catch (e) {}
     }
+
+    function step(msg) { try { console.log("PS: " + msg); } catch (e) {} }
 
     function submit(binding, token) {
         try {
-            window.PianoStreamTokenBridge.submitToken(binding, token);
+            if (window.PianoStreamTokenBridge) {
+                window.PianoStreamTokenBridge.submitToken(binding, token);
+                return;
+            }
+        } catch (e) { /* fall through to the navigation channel */ }
+        // JS interfaces are not injected into loadDataWithBaseURL pages on
+        // some WebView builds — report the token through a cancelled
+        // navigation instead (shouldOverrideUrlLoading picks it up).
+        try {
+            location.href = "pianostream://token?b=" +
+                encodeURIComponent(binding) + "&t=" + encodeURIComponent(token);
         } catch (e) {
-            fail("bridge submit: " + e);
+            fail("token submit: " + e);
         }
+    }
+
+    function b64ToU8(base64) {
+        var mod = base64.replace(/[-_]/g, function (m) {
+            return m === "-" ? "+" : "/";
+        });
+        var bin = atob(mod);
+        var u8 = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return u8;
+    }
+
+    function u8ToB64Url(u8) {
+        var s = "";
+        for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+        return btoa(s).replace(/\+/g, "-").replace(/\//g, "_");
     }
 
     window.addEventListener("message", function (ev) {
@@ -47,62 +88,108 @@
         mint(d.binding || "VISITOR", d.key || "");
     });
 
-    function params() {
-        var q = location.search.substring(1).split("&");
-        var out = {};
-        for (var i = 0; i < q.length; i++) {
-            var kv = q[i].split("=");
-            if (kv[0]) out[kv[0]] = decodeURIComponent(kv[1] || "");
-        }
-        return out;
+    function runChallenge(bg, interpreterUrl, binding, key) {
+        var src = interpreterUrl.indexOf("//") === 0 ?
+            "https:" + interpreterUrl : interpreterUrl;
+        // Classic script tags load cross-origin without CORS — the
+        // interpreter defines window[bg.globalName] when it executes.
+        var g = window || globalThis;
+        var s = document.createElement("script");
+        s.type = "text/javascript";
+        s.src = src;
+        s.onload = function () {
+            step("interpreter loaded");
+            var vm = g[bg.globalName];
+            if (!vm || !vm.a) { fail("vm unavailable"); return; }
+
+            var setupCallback = function (asyncSnapshotFunction) {
+                var webPoSignalOutput = [];
+                try {
+                    asyncSnapshotFunction(function (botguardResponse) {
+                        step("snapshot done");
+                        generateIntegrityToken(botguardResponse,
+                            webPoSignalOutput, binding, key);
+                    }, [undefined, undefined, webPoSignalOutput, undefined]);
+                } catch (e) { fail("snapshot: " + e); }
+            };
+
+            try {
+                vm.a(bg.program, setupCallback, true, undefined,
+                    function () {}, [[], []], undefined, false, undefined);
+            } catch (e) { fail("vm.a: " + e); }
+        };
+        s.onerror = function () { fail("interpreter load"); };
+        document.head.appendChild(s);
     }
 
     function mint(binding, key) {
-        // BotGuard VM program bootstrap (community technique):
-        //  1. POST /youtubei/v1/att/get to obtain the challenge program;
-        //  2. load the program into an isolated interpreter frame;
-        //  3. call the emitted att() for this binding's input;
-        //  4. submitToken(binding, token).
-        // The host process/settings are already the sandbox; no file access,
-        // no storage, navigation filtered to youtube origins.
         fetch("https://www.youtube.com/youtubei/v1/att/get", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+                context: {
+                    client: {
+                        clientName: "WEB",
+                        clientVersion: "2.20250925.01.00",
+                        hl: "en",
+                        gl: "US"
+                    }
+                },
                 engagementType: "ENGAGEMENT_TYPE_UNBOUND"
             })
-        }).then(function (r) { return r.json(); }).then(function (resp) {
-            var challenge =
-                resp && resp.challenge &&
-                resp.challenge.bg_challenge &&
-                resp.challenge.bg_challenge.program;
-            if (!challenge) { fail("no bg program"); return; }
-            runProgram(challenge, binding, key);
-        }).catch(function (e) { fail("att/get: " + e); });
-    }
-
-    function runProgram(program, binding, key) {
-        try {
-            var vm = { done: false, token: null };
-            // The BotGuard program is self-contained; eval in a Function scope
-            // so it cannot see this closure's helpers.
-            var run = new Function("vm", program);
-            run(vm);
-            var poll = setInterval(function () {
-                if (vm.done || vm.token) {
-                    clearInterval(poll);
-                    submit(binding, vm.token);
+        }).then(function (r) { return r.json(); })
+            .then(function (resp) {
+                step("att/get ok");
+                var bg = resp && resp.bgChallenge;
+                var iurl = bg && bg.interpreterUrl &&
+                    bg.interpreterUrl.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue;
+                if (!bg || !bg.program || !bg.globalName || !iurl) {
+                    fail("bad att/get response");
+                    return;
                 }
-            }, 100);
-            setTimeout(function () { clearInterval(poll); fail("mint timeout"); }, 6000);
-        } catch (e) {
-            fail("program: " + e);
-        }
+                runChallenge(bg, iurl, binding, key);
+            }).catch(function (e) { fail("att/get: " + e); });
     }
 
-    // Auto-start from ?b=BINDING&s=SEED when loaded by the host.
-    var p = params();
-    if (p.b) mint(p.b, p.s || "");
+    function generateIntegrityToken(botguardResponse, webPoSignalOutput,
+                                    binding, key) {
+        fetch(WAA_API, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json+protobuf",
+                "x-goog-api-key": WAA_KEY,
+                "x-user-agent": "grpc-web-javascript/0.1"
+            },
+            body: JSON.stringify([REQUEST_KEY, botguardResponse])
+        }).then(function (r) { return r.json(); })
+            .then(function (it) {
+                step("generateIT ok");
+                var integrityToken = it && it[0];
+                var getMinter = webPoSignalOutput && webPoSignalOutput[0];
+                if (!integrityToken || !getMinter) {
+                    fail("no integrity token/minter");
+                    return;
+                }
+                Promise.resolve(getMinter(b64ToU8(integrityToken)))
+                    .then(function (mintCallback) {
+                        step("minter ready");
+                        return mintCallback(new TextEncoder().encode(key));
+                    })
+                    .then(function (proof) {
+                        if (proof instanceof Uint8Array) {
+                            step("token minted");
+                            submit(binding, u8ToB64Url(proof));
+                        } else {
+                            fail("bad proof type");
+                        }
+                    })
+                    .catch(function (e) { fail("mint: " + e); });
+            }).catch(function (e) { fail("generateIT: " + e); });
+    }
+
+    // Auto-start — the host loads this file via loadDataWithBaseURL at the
+    // youtube.com origin and substitutes both placeholders.
+    mint("__MINT_BINDING__", "__MINT_KEY__");
 })();
 </script>
 </head>

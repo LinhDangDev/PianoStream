@@ -15,7 +15,9 @@ import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.local.scan.LibraryHasher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -137,13 +139,28 @@ class LibraryViewModel @Inject constructor(
         return rows to startIndex
     }
 
+    /**
+     * One-shot play requests emitted when a tap should start playback
+     * directly — tapping a single (a one-track disc) plays it instead of
+     * silently selecting it (the old behaviour looked like the tap did
+     * nothing: the track list only shows under the Tracks tab).
+     */
+    private val _playRequests =
+        MutableSharedFlow<Pair<List<QueueItem>, Int>>(extraBufferCapacity = 1)
+    val playRequests: SharedFlow<Pair<List<QueueItem>, Int>> = _playRequests
+
     fun selectDisc(disc: Disc?) {
         tracksJob?.cancel()
         _state.update { it.copy(selectedDisc = disc, tracks = emptyList()) }
         if (disc != null) {
+            var pendingAutoPlay = disc.isSingle()
             tracksJob = viewModelScope.launch {
                 libraryRepository.observeTracks(disc.id).collect { tracks ->
                     _state.update { it.copy(tracks = tracks) }
+                    if (pendingAutoPlay && tracks.isNotEmpty()) {
+                        pendingAutoPlay = false
+                        discQueue(0)?.let { _playRequests.tryEmit(it) }
+                    }
                 }
             }
         }

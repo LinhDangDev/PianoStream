@@ -24,11 +24,21 @@ internal object YouTubeClientCatalog {
     )
 
     /**
-     * Ordered fallback per the plan:
-     * `VISIONOS` → `ANDROID_VR 1.65.10` → `ANDROID_VR 1.61.48` →
-     * `ANDROID_VR 1.43.32` → `WEB_REMIX` (authenticated sessions only).
+     * Ordered fallback: `ANDROID` → `VISIONOS` → `ANDROID_VR 1.65.10` →
+     * `ANDROID_VR 1.61.48` → `ANDROID_VR 1.43.32` → `WEB_REMIX`
+     * (authenticated sessions only). `ANDROID` leads because it still
+     * returns plain googlevideo URLs on bot-checked (licensed-music)
+     * videos where the VR/iOS clients get `LOGIN_REQUIRED`.
      */
     val ordered: List<Client> = listOf(
+        Client(
+            id = "ANDROID_20_10_38",
+            name = "ANDROID",
+            version = "20.10.38",
+            lifecycle = Lifecycle.STABLE,
+            userAgent =
+                "com.google.android.youtube/20.10.38 (Linux; U; Android 13) gzip",
+        ),
         Client(
             id = "VISIONOS",
             name = "IOS",
@@ -66,7 +76,9 @@ internal object YouTubeClientCatalog {
             name = "WEB_REMIX",
             version = InnerTubeVersion.WEB_REMIX,
             lifecycle = Lifecycle.STABLE,
-            requiresAuth = true,
+            // Not `requiresAuth` on purpose: signed-out requests carrying a
+            // session poToken are the documented webpo pairing — they still
+            // play when every mobile client gets bot-checked.
             requiresGvsPoToken = true,
         ),
     )

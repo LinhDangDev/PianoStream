@@ -96,9 +96,10 @@ class SearchViewModel @Inject constructor(
     /** First-run disclosure accepted for this session (F12). */
     fun acceptYoutubeDisclosure() {
         _state.update { it.copy(youtubeOptedIn = true) }
-        if (_state.value.scope == Scope.YOUTUBE) {
-            refresh(_state.value.query)
-        }
+        // Re-run the pending query on any scope that shows the YouTube
+        // section (ALL included) — otherwise the section stays empty until
+        // the user retypes, which reads as broken.
+        refresh(_state.value.query)
     }
 
     fun setScope(scope: Scope) {

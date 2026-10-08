@@ -107,6 +107,8 @@ internal class WebViewPoTokenMinter(
     }
 
     companion object {
-        const val MINT_TIMEOUT_MS = 8_000L
+        // The webpo chain — att/get + interpreter fetch + VM init + snapshot
+        // + GenerateIT + mint — needs well past 8 s on a cold WebView.
+        const val MINT_TIMEOUT_MS = 20_000L
     }
 }

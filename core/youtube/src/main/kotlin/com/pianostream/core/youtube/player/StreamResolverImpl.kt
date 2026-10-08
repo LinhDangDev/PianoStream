@@ -114,17 +114,33 @@ internal class StreamResolverImpl(
         }
 
         val candidates = fallback.orderedCandidates(signedIn, excluding)
+        android.util.Log.i(
+            TAG,
+            "resolve $videoId (${kind.label}) via ${candidates.map { it.id }}",
+        )
         var lastError: ExtractionException? = null
         for (client in candidates) {
             try {
                 val stream = resolveWith(client, videoId, preferredItag, kind)
                 health.recordSuccess(client.id)
+                android.util.Log.i(
+                    TAG,
+                    "${client.id} resolved itag=${stream.itag} " +
+                        "url=${stream.url.take(80)}…",
+                )
                 return stream
             } catch (e: ExtractionException.RateLimited) {
                 throw e // 429 → caller backs off; no retry loop (plan R5)
             } catch (e: ExtractionException) {
                 health.recordFailure(client.id)
+                android.util.Log.w(
+                    TAG,
+                    "${client.id} failed: ${e.javaClass.simpleName} ${e.message}",
+                )
                 lastError = e
+            } catch (t: Throwable) {
+                android.util.Log.e(TAG, "${client.id} threw ${t.javaClass.name}", t)
+                throw t
             }
         }
         throw lastError ?: ExtractionException.AllClientsFailed(
@@ -143,12 +159,20 @@ internal class StreamResolverImpl(
         preferredItag: Int,
         kind: Kind,
     ): ResolvedStream = withContext(Dispatchers.IO) {
-        // Session-bound token on the player request only for clients that
-        // require it; GVS stays off this path entirely (F3).
-        val requestToken = if (client.requiresGvsPoToken) {
-            poToken?.token(PoTokenBinding.VISITOR, InnerTubeHeaders.visitorData)
-                ?: throw ExtractionException.PoTokenRequired(client.id)
-        } else null
+        // Session-bound token on the player request: bot-checked videos answer
+        // `LOGIN_REQUIRED` without it, so mint opportunistically for every
+        // client — only `requiresGvsPoToken` clients hard-fail without one
+        // (F3: GVS still stays off this path entirely).
+        val requestToken = run {
+            val minted = poToken?.token(
+                PoTokenBinding.VISITOR,
+                InnerTubeHeaders.visitorData,
+            )
+            if (client.requiresGvsPoToken && minted == null) {
+                throw ExtractionException.PoTokenRequired(client.id)
+            }
+            minted
+        }
 
         val body = PlayerRequestBuilder.build(
             client = client,
@@ -171,12 +195,15 @@ internal class StreamResolverImpl(
         val finalUrl = materializeUrl(client, playerResponse, format)
 
         // GVS token decorates only the googlevideo URL (F3 — never the
-        // player request path).
-        val url = if (client.requiresGvsPoToken) {
-            val gvs = poToken?.token(PoTokenBinding.GVS, videoId)
-                ?: throw ExtractionException.PoTokenRequired(client.id)
-            finalUrl + "&pot=" + gvs
-        } else finalUrl
+        // player request path). Bot-checked videos 403 the bare googlevideo
+        // URL even on clients that don't formally require a token, so mint
+        // one opportunistically for every client; `requiresGvsPoToken`
+        // clients still hard-fail when minting is unavailable.
+        val gvsToken = poToken?.token(PoTokenBinding.GVS, videoId)
+        if (client.requiresGvsPoToken && gvsToken == null) {
+            throw ExtractionException.PoTokenRequired(client.id)
+        }
+        val url = if (gvsToken != null) "$finalUrl&pot=$gvsToken" else finalUrl
 
         val nowEpoch = epochMs()
         val nowUptime = uptimeMs()
@@ -315,6 +342,7 @@ internal class StreamResolverImpl(
         "https://music.youtube.com/s/player/$hash/base.js"
 
     private companion object {
+        const val TAG = "StreamResolver"
         val JSON = "application/json; charset=utf-8".toMediaType()
     }
 }
