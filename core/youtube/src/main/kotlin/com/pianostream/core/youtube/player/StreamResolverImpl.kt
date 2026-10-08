@@ -53,9 +53,14 @@ internal class StreamResolverImpl(
     private val epochMs: () -> Long = System::currentTimeMillis,
     private val uptimeMs: () -> Long = SystemClock::elapsedRealtime,
     private val signedIn: Boolean = false,
-    /** Overridable for MockWebServer tests. */
-    private val playerEndpoint: String =
-        "https://music.youtube.com/youtubei/v1/player",
+    /**
+     * Overridable for MockWebServer tests. `null` (production) selects the
+     * endpoint per client: mobile clients post to `youtubei.googleapis.com`,
+     * web clients to `music.youtube.com`. A non-null value is used for every
+     * client and also disables the real `visitorData` fetch, so unit tests
+     * never touch the network.
+     */
+    private val playerEndpoint: String? = null,
 ) : StreamResolver {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -114,16 +119,13 @@ internal class StreamResolverImpl(
         }
 
         val candidates = fallback.orderedCandidates(signedIn, excluding)
-        android.util.Log.i(
-            TAG,
-            "resolve $videoId (${kind.label}) via ${candidates.map { it.id }}",
-        )
+        logi(TAG, "resolve $videoId (${kind.label}) via ${candidates.map { it.id }}")
         var lastError: ExtractionException? = null
         for (client in candidates) {
             try {
                 val stream = resolveWith(client, videoId, preferredItag, kind)
                 health.recordSuccess(client.id)
-                android.util.Log.i(
+                logi(
                     TAG,
                     "${client.id} resolved itag=${stream.itag} " +
                         "url=${stream.url.take(80)}…",
@@ -133,13 +135,13 @@ internal class StreamResolverImpl(
                 throw e // 429 → caller backs off; no retry loop (plan R5)
             } catch (e: ExtractionException) {
                 health.recordFailure(client.id)
-                android.util.Log.w(
+                logw(
                     TAG,
                     "${client.id} failed: ${e.javaClass.simpleName} ${e.message}",
                 )
                 lastError = e
             } catch (t: Throwable) {
-                android.util.Log.e(TAG, "${client.id} threw ${t.javaClass.name}", t)
+                loge(TAG, "${client.id} threw ${t.javaClass.name}")
                 throw t
             }
         }
@@ -159,24 +161,29 @@ internal class StreamResolverImpl(
         preferredItag: Int,
         kind: Kind,
     ): ResolvedStream = withContext(Dispatchers.IO) {
-        // Session-bound token on the player request: bot-checked videos answer
-        // `LOGIN_REQUIRED` without it, so mint opportunistically for every
-        // client — only `requiresGvsPoToken` clients hard-fail without one
-        // (F3: GVS still stays off this path entirely).
-        val requestToken = run {
-            val minted = poToken?.token(
+        // Session-bound poToken rides only the WEB_REMIX request (F3/GVS
+        // pairing). Mobile clients return unsigned URLs without one, and a
+        // token bound to a visitor the request didn't use can only hurt.
+        val requestToken = if (client.requiresGvsPoToken) {
+            poToken?.token(
                 PoTokenBinding.VISITOR,
                 InnerTubeHeaders.visitorData,
-            )
-            if (client.requiresGvsPoToken && minted == null) {
-                throw ExtractionException.PoTokenRequired(client.id)
-            }
-            minted
+            ) ?: throw ExtractionException.PoTokenRequired(client.id)
+        } else {
+            null
         }
+
+        // Mobile clients need a REAL visitorData (fetched per-client from
+        // /visitor_id and cached for the session); a synthetic one reads as
+        // a bot and earns SABR-only or bot-checked responses.
+        val visitor = visitorDataFor(client)
+        val cpn = randomNonce(16)
 
         val body = PlayerRequestBuilder.build(
             client = client,
             videoId = videoId,
+            visitorData = visitor,
+            cpn = cpn,
             poToken = requestToken,
         )
         val playerResponse = postPlayer(client, body)
@@ -194,16 +201,16 @@ internal class StreamResolverImpl(
 
         val finalUrl = materializeUrl(client, playerResponse, format)
 
-        // GVS token decorates only the googlevideo URL (F3 — never the
-        // player request path). Bot-checked videos 403 the bare googlevideo
-        // URL even on clients that don't formally require a token, so mint
-        // one opportunistically for every client; `requiresGvsPoToken`
-        // clients still hard-fail when minting is unavailable.
-        val gvsToken = poToken?.token(PoTokenBinding.GVS, videoId)
-        if (client.requiresGvsPoToken && gvsToken == null) {
-            throw ExtractionException.PoTokenRequired(client.id)
+        // GVS token decorates only the googlevideo URL of clients that
+        // require it (F3) — never mobile clients' unsigned URLs.
+        val url = if (client.requiresGvsPoToken) {
+            val gvsToken = poToken?.token(PoTokenBinding.GVS, videoId)
+                ?: throw ExtractionException.PoTokenRequired(client.id)
+            "$finalUrl&pot=$gvsToken"
+        } else {
+            // Content-playback nonce matching the request — like the real app.
+            "$finalUrl&cpn=$cpn"
         }
-        val url = if (gvsToken != null) "$finalUrl&pot=$gvsToken" else finalUrl
 
         val nowEpoch = epochMs()
         val nowUptime = uptimeMs()
@@ -230,15 +237,74 @@ internal class StreamResolverImpl(
         stream
     }
 
+    /** Visitor tokens fetched per mobile client for the session. */
+    private val visitorCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * Real `visitorData` for [client] — null in tests (endpoint override) or
+     * when the fetch fails (the field is then simply omitted, like a fresh
+     * app install that has not talked to YouTube yet).
+     */
+    private suspend fun visitorDataFor(
+        client: YouTubeClientCatalog.Client,
+    ): String? {
+        if (playerEndpoint != null) return InnerTubeHeaders.visitorData
+        if (!client.mobile) return InnerTubeHeaders.visitorData
+        visitorCache[client.id]?.let { return it }
+        val fetched = runCatching { fetchVisitorId(client) }.getOrNull()
+        if (fetched != null) visitorCache[client.id] = fetched
+        return fetched
+    }
+
+    /**
+     * `POST /youtubei/v1/visitor_id` with the client's context — the real
+     * apps' way of obtaining a bound visitor token.
+     */
+    private fun fetchVisitorId(client: YouTubeClientCatalog.Client): String? {
+        val body = PlayerRequestBuilder.buildContextOnly(client)
+        val req = Request.Builder()
+            .url("$VISITOR_ENDPOINT?prettyPrint=false")
+            .post(body.toString().toRequestBody(JSON))
+            .header("Content-Type", "application/json")
+            .apply {
+                client.userAgent?.let { header("User-Agent", it) }
+                if (client.mobile) header("X-Goog-Api-Format-Version", "2")
+            }
+            .build()
+        return runCatching {
+            okHttp.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val obj = resp.body?.string()
+                    ?.let { json.parseToJsonElement(it) as? JsonObject }
+                    ?: return@use null
+                (obj["responseContext"] as? JsonObject)
+                    ?.get("visitorData")
+                    ?.let { it as? kotlinx.serialization.json.JsonPrimitive }
+                    ?.contentOrNull
+            }
+        }.getOrNull()
+    }
+
+    private fun endpointFor(client: YouTubeClientCatalog.Client): String =
+        playerEndpoint
+            ?: if (client.mobile) MOBILE_PLAYER_ENDPOINT else WEB_PLAYER_ENDPOINT
+
     private fun postPlayer(
         client: YouTubeClientCatalog.Client,
         body: JsonObject,
     ): JsonObject {
         val req = Request.Builder()
-            .url(playerEndpoint)
+            .url("${endpointFor(client)}?prettyPrint=false")
             .post(body.toString().toRequestBody(JSON))
             .header("Content-Type", "application/json")
-            .apply { client.userAgent?.let { header("User-Agent", it) } }
+            .apply {
+                client.userAgent?.let { header("User-Agent", it) }
+                if (client.mobile) {
+                    header("X-Goog-Api-Format-Version", "2")
+                } else {
+                    InnerTubeHeaders.applyTo(this)
+                }
+            }
             .build()
         return try {
             okHttp.newCall(req).execute().use { resp ->
@@ -343,7 +409,35 @@ internal class StreamResolverImpl(
 
     private companion object {
         const val TAG = "StreamResolver"
+
+        // android.util.Log throws "not mocked" under plain JVM unit tests —
+        // route through helpers that tolerate the stub runtime.
+        fun logi(tag: String, msg: String) {
+            runCatching { android.util.Log.i(tag, msg) }
+        }
+        fun logw(tag: String, msg: String) {
+            runCatching { android.util.Log.w(tag, msg) }
+        }
+        fun loge(tag: String, msg: String) {
+            runCatching { android.util.Log.e(tag, msg) }
+        }
+        const val MOBILE_PLAYER_ENDPOINT =
+            "https://youtubei.googleapis.com/youtubei/v1/player"
+        const val WEB_PLAYER_ENDPOINT =
+            "https://music.youtube.com/youtubei/v1/player"
+        const val VISITOR_ENDPOINT =
+            "https://youtubei.googleapis.com/youtubei/v1/visitor_id"
         val JSON = "application/json; charset=utf-8".toMediaType()
+
+        private val NONCE_CHARS =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        private val NONCE_RANDOM = java.security.SecureRandom()
+
+        /** Alphanumeric nonce like the real apps' `cpn`/`t` params. */
+        fun randomNonce(length: Int): String =
+            (1..length)
+                .map { NONCE_CHARS[NONCE_RANDOM.nextInt(NONCE_CHARS.length)] }
+                .joinToString("")
     }
 }
 
