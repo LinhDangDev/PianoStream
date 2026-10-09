@@ -9,7 +9,11 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
+import androidx.media3.common.audio.AudioProcessor
 import com.pianostream.core.media.audio.ReplayGainAudioProcessor
+import com.pianostream.core.media.audiofx.MonoAudioProcessor
+import com.pianostream.core.media.audiofx.NormalizeGainProcessor
+import com.pianostream.core.media.audiofx.PlaybackPrefsApplier
 import com.pianostream.core.media.cache.MediaCache
 import com.pianostream.core.media.datasource.SchemeRoutingDataSource
 import com.pianostream.core.media.datasource.StreamResolvingDataSource
@@ -31,6 +35,11 @@ import okhttp3.OkHttpClient
  *    `ReplayGainAudioProcessor` (H3/H4).
  *  - `replayGainMode = OFF` ⇒ no processor installed at all (RenderersFactory
  *    is frozen at service start — a restart is required).
+ *  - playbackfx: every sink also carries a `NormalizeGainProcessor` and a
+ *    `MonoAudioProcessor` (fresh instances per sink — processor state is not
+ *    shareable). They read `PlaybackFxState.shared`, which
+ *    `PlaybackPrefsApplier.ensureStarted` feeds from SettingsDataStore — so
+ *    `monoAudio`/`normalizeVolume`/`preampDb` apply without any DI edits.
  */
 object PlayerFactory {
 
@@ -78,23 +87,38 @@ object PlayerFactory {
         }
     }
 
+    /**
+     * The playbackfx stage set for one sink: normalize/preamp then mono
+     * downmix (downmix last — fewer channels to scale). Every player gets
+     * fresh instances; they all read `PlaybackFxState.shared`.
+     */
+    fun defaultAudioFxProcessors(): List<AudioProcessor> =
+        listOf(NormalizeGainProcessor(), MonoAudioProcessor())
+
     /** RenderersFactory with the ReplayGain processor installed (unless OFF). */
     fun renderersFactory(
         context: Context,
         replayGainProcessor: ReplayGainAudioProcessor?,
-    ): RenderersFactory = object : DefaultRenderersFactory(context) {
-        override fun buildAudioSink(
-            context: Context,
-            enableFloatOutput: Boolean,
-            enableAudioTrackPlaybackParams: Boolean,
-        ): AudioSink {
-            val builder = DefaultAudioSink.Builder(context)
-                .setEnableFloatOutput(enableFloatOutput)
-                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-            if (replayGainProcessor != null) {
-                builder.setAudioProcessors(arrayOf(replayGainProcessor))
+        audioFxProcessors: List<AudioProcessor> = defaultAudioFxProcessors(),
+    ): RenderersFactory {
+        // Self-wired prefs collector — MediaModule is frozen, so the first
+        // factory build launches the one process-wide DataStore collect.
+        PlaybackPrefsApplier.ensureStarted(context)
+        return object : DefaultRenderersFactory(context) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): AudioSink {
+                val builder = DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                val processors = listOfNotNull(replayGainProcessor) + audioFxProcessors
+                if (processors.isNotEmpty()) {
+                    builder.setAudioProcessors(processors.toTypedArray())
+                }
+                return builder.build()
             }
-            return builder.build()
         }
     }
 
@@ -113,14 +137,17 @@ object PlayerFactory {
         return preloadManagerBuilder.buildExoPlayer(builder)
     }
 
-    /** The crossfade secondary — H4 config, own processor, no focus. */
+    /** The crossfade secondary — H4 config, own processors, no focus. */
     fun buildSecondary(
         context: Context,
         primaryAudioSessionId: Int,
         mediaSourceFactory: MediaSource.Factory,
         replayGainProcessor: ReplayGainAudioProcessor?,
+        audioFxProcessors: List<AudioProcessor> = defaultAudioFxProcessors(),
     ): ExoPlayer = ExoPlayer.Builder(context)
-        .setRenderersFactory(renderersFactory(context, replayGainProcessor))
+        .setRenderersFactory(
+            renderersFactory(context, replayGainProcessor, audioFxProcessors),
+        )
         .setMediaSourceFactory(mediaSourceFactory)
         .setAudioAttributes(AudioOffloadPolicy.primaryAttributes(), false)
         .setHandleAudioBecomingNoisy(false)
