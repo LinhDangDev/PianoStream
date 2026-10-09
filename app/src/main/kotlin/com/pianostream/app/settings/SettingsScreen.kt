@@ -206,7 +206,7 @@ public fun SettingsScreen(
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                bottom = 16.dp,
+                bottom = 96.dp, // clears the collapsed mini player, like every other screen
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {

@@ -60,7 +60,9 @@ public fun AppScaffold(
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     val current = backStack.lastOrNull()
-    val showTabs = current in TOP_LEVEL.map { it.route }
+    // Bar stays visible on every route (sub-screens show no selected tab);
+    // only the expanded player hides it.
+    val showTabs = true
 
     // Player ⋯ sheet targets the LIVE media item — read metadata at tap
     // time (these lambdas only fire while an item is loaded).
