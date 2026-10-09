@@ -12,10 +12,12 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.PlayHistoryItem
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import com.pianostream.core.media.api.PlaybackController
+import com.pianostream.core.media.sleep.SleepTimerMode
 import com.pianostream.core.youtube.api.ExtractionException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -48,6 +50,26 @@ class PlayerViewModelTest {
         var prepareCalls = 0
 
         var replaceCalls = mutableListOf<List<String>>()
+        /** playWhenReady values seen by handleSetPlayWhenReady (sleep-timer pause assertions). */
+        var pwrCalls = mutableListOf<Boolean>()
+        /** (from, to) ranges passed to handleRemoveMediaItems (clearQueue assertions). */
+        var removeRanges = mutableListOf<Pair<Int, Int>>()
+
+        /** Fake a track advance: republish state at another index (transition event). */
+        fun transitionTo(index: Int) {
+            _state = _state.buildUpon()
+                .setCurrentMediaItemIndex(index)
+                .build()
+            invalidateState()
+        }
+
+        /** Fake the playlist running out: STATE_ENDED like a real natural end. */
+        fun endPlaylist() {
+            _state = _state.buildUpon()
+                .setPlaybackState(STATE_ENDED)
+                .build()
+            invalidateState()
+        }
 
         private val items = (1..3).map { i ->
             MediaItemData.Builder("uid-$i")
@@ -149,6 +171,7 @@ class PlayerViewModelTest {
 
         override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
             playing = playWhenReady
+            pwrCalls.add(playWhenReady)
             return Futures.immediateVoidFuture()
         }
 
@@ -190,6 +213,23 @@ class PlayerViewModelTest {
             toIndex: Int,
         ): ListenableFuture<*> {
             removeCalls.add(fromIndex)
+            removeRanges.add(fromIndex to toIndex)
+            val from = fromIndex.coerceIn(0, items.size)
+            val to = toIndex.coerceIn(from, items.size)
+            if (from < to) {
+                items.subList(from, to).clear()
+                val index = _state.currentMediaItemIndex
+                val newIndex = when {
+                    index >= to -> index - (to - from)
+                    index >= from -> from
+                    else -> index
+                }.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+                _state = _state.buildUpon()
+                    .setPlaylist(items)
+                    .setCurrentMediaItemIndex(newIndex)
+                    .build()
+                invalidateState()
+            }
             return Futures.immediateVoidFuture()
         }
 
@@ -223,12 +263,14 @@ class PlayerViewModelTest {
     private lateinit var player: RecordingPlayer
     private lateinit var ready: MutableStateFlow<Boolean>
     private lateinit var controller: TestController
+    private lateinit var repo: FakePlaybackRepository
 
     @Before
     fun setUp() {
         player = RecordingPlayer()
         ready = MutableStateFlow(false)
         controller = TestController(player, ready)
+        repo = FakePlaybackRepository()
     }
 
     private fun TestScope.vm(): PlayerViewModel {
@@ -240,7 +282,7 @@ class PlayerViewModelTest {
         // advanceUntilIdle would spin on the VM's infinite 1 s ticker.
         val vm = PlayerViewModel(
             controller,
-            FakePlaybackRepository(),
+            repo,
             com.pianostream.core.media.video.VideoQualityStore(),
         )
         vm.connect()
@@ -404,6 +446,153 @@ class PlayerViewModelTest {
         assertThat(player.indexSeekCalls.size + player.seekToCalls.size)
             .isGreaterThan(before)
     }
+
+    // --- sleep timer ---------------------------------------------------------
+
+    @Test
+    fun `sleep timer counts down on the ticker and pauses on expiry`() = runTest {
+        ready.value = true
+        val vm = vm()
+        player.play() // arm a pause-able state
+        ShadowLooper.idleMainLooper()
+
+        vm.setSleepTimer(SleepTimerMode.AfterMinutes(1))
+        assertThat(vm.sleepTimer.value.active).isTrue()
+        assertThat(vm.sleepTimer.value.mode).isEqualTo(SleepTimerMode.AfterMinutes(1))
+        assertThat(vm.sleepTimer.value.remainingMs).isEqualTo(60_000L)
+
+        ShadowLooper.idleMainLooper(10_000, TimeUnit.MILLISECONDS)
+        assertThat(vm.sleepTimer.value.remainingMs).isLessThan(60_000L)
+        assertThat(vm.sleepTimer.value.active).isTrue()
+
+        ShadowLooper.idleMainLooper(55_000, TimeUnit.MILLISECONDS)
+        assertThat(vm.sleepTimer.value.active).isFalse()
+        assertThat(vm.sleepTimer.value.mode).isNull()
+        assertThat(player.pwrCalls.last()).isFalse()
+        assertThat(player.playing).isFalse()
+    }
+
+    @Test
+    fun `cancel sleep timer disarms without pausing`() = runTest {
+        ready.value = true
+        val vm = vm()
+        vm.setSleepTimer(SleepTimerMode.AfterMinutes(1))
+        vm.cancelSleepTimer()
+        assertThat(vm.sleepTimer.value.active).isFalse()
+        assertThat(vm.sleepTimer.value.mode).isNull()
+        assertThat(vm.sleepTimer.value.remainingMs).isEqualTo(0L)
+
+        ShadowLooper.idleMainLooper(65_000, TimeUnit.MILLISECONDS)
+        assertThat(player.pwrCalls).isEmpty()
+    }
+
+    @Test
+    fun `re-setting the sleep timer replaces it`() = runTest {
+        ready.value = true
+        val vm = vm()
+        vm.setSleepTimer(SleepTimerMode.AfterMinutes(5))
+        vm.setSleepTimer(SleepTimerMode.AfterMinutes(1))
+        assertThat(vm.sleepTimer.value.remainingMs).isEqualTo(60_000L)
+
+        player.play()
+        ShadowLooper.idleMainLooper(65_000, TimeUnit.MILLISECONDS)
+        // Fired at ~1 minute, not 5.
+        assertThat(vm.sleepTimer.value.active).isFalse()
+        assertThat(player.pwrCalls.last()).isFalse()
+    }
+
+    @Test
+    fun `end-of-track sleep timer pauses once on transition`() = runTest {
+        ready.value = true
+        val vm = vm()
+        player.play()
+        ShadowLooper.idleMainLooper()
+
+        vm.setSleepTimer(SleepTimerMode.EndOfTrack)
+        assertThat(vm.sleepTimer.value.active).isTrue()
+        assertThat(vm.sleepTimer.value.mode).isEqualTo(SleepTimerMode.EndOfTrack)
+
+        player.transitionTo(1)
+        ShadowLooper.idleMainLooper()
+        assertThat(vm.sleepTimer.value.active).isFalse()
+        assertThat(player.pwrCalls.last()).isFalse()
+
+        // Fires once — later transitions never re-trigger it.
+        player.play()
+        player.transitionTo(2)
+        ShadowLooper.idleMainLooper()
+        assertThat(player.pwrCalls.count { !it }).isEqualTo(1)
+    }
+
+    @Test
+    fun `end-of-track sleep timer pauses on playlist end`() = runTest {
+        ready.value = true
+        val vm = vm()
+        player.play()
+        ShadowLooper.idleMainLooper()
+        vm.setSleepTimer(SleepTimerMode.EndOfTrack)
+
+        player.endPlaylist()
+        ShadowLooper.idleMainLooper()
+        assertThat(vm.sleepTimer.value.active).isFalse()
+        assertThat(player.pwrCalls.last()).isFalse()
+    }
+
+    // --- clearQueue ----------------------------------------------------------
+
+    private fun queueRow(i: Int) = QueueItem(
+        id = i.toLong(),
+        position = i - 1,
+        mediaId = "pianostream://local/k$i",
+        title = "T$i",
+        artist = null,
+        artworkUri = null,
+        source = MediaSource.LOCAL,
+        durationMs = 60_000L,
+        addedAt = 0L,
+    )
+
+    @Test
+    fun `clearQueue keeps the current row and passes the cursor through`() = runTest {
+        ready.value = true
+        val cursor = QueueState(
+            currentIndex = 0,
+            positionMs = 5_000,
+            repeatMode = Player.REPEAT_MODE_OFF,
+            shuffle = false,
+            updatedAt = 1L,
+        )
+        repo.state = cursor
+        repo.queue.value = listOf(queueRow(1), queueRow(2), queueRow(3))
+        val vm = vm()
+
+        vm.clearQueue()
+        ShadowLooper.idleMainLooper()
+
+        assertThat(repo.queue.value.map { it.mediaId })
+            .containsExactly("pianostream://local/k1")
+        assertThat(repo.queue.value[0].position).isEqualTo(0)
+        assertThat(repo.replaceCalls.last().second).isSameInstanceAs(cursor)
+        assertThat(repo.state).isSameInstanceAs(cursor)
+        // Live player: everything after index 0 is removed.
+        assertThat(player.removeRanges).containsExactly(1 to 3)
+    }
+
+    @Test
+    fun `clearQueue mid-queue removes items on both sides`() = runTest {
+        ready.value = true
+        repo.queue.value = listOf(queueRow(1), queueRow(2), queueRow(3))
+        val vm = vm()
+        player.transitionTo(1)
+        ShadowLooper.idleMainLooper()
+
+        vm.clearQueue()
+        ShadowLooper.idleMainLooper()
+
+        assertThat(repo.queue.value.map { it.mediaId })
+            .containsExactly("pianostream://local/k2")
+        assertThat(player.removeRanges).containsExactly(2 to 3, 0 to 1).inOrder()
+    }
 }
 
 /** Minimal in-memory repo — move/remove mirrors are the only parts under test. */
@@ -411,9 +600,13 @@ private class FakePlaybackRepository : PlaybackRepository {
     val queue = MutableStateFlow<List<QueueItem>>(emptyList())
     var state: QueueState? = null
 
+    /** (items, state) pairs handed to replaceQueue, in call order. */
+    val replaceCalls = mutableListOf<Pair<List<QueueItem>, QueueState?>>()
+
     override fun observeQueue(): Flow<List<QueueItem>> = queue
     override fun observeQueueState(): Flow<QueueState?> = MutableStateFlow(state)
     override suspend fun replaceQueue(items: List<QueueItem>, state: QueueState?) {
+        replaceCalls.add(items to state)
         queue.value = items.mapIndexed { i, q -> q.copy(position = i) }
         state?.let { this.state = it }
     }
