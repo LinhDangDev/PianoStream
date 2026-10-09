@@ -15,6 +15,10 @@ public class FakePlaybackController @Inject constructor() : PlaybackController {
 
     private val fakePlayer = FakePlayer()
 
+    init {
+        StubRuntime.playbackController = this
+    }
+
     override val player: Player get() = fakePlayer
 
     private val ready = MutableStateFlow(false)

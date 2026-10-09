@@ -3,6 +3,7 @@ package com.pianostream.app.fake
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import javax.inject.Inject
@@ -15,10 +16,17 @@ import kotlinx.coroutines.flow.map
 @Singleton
 public class FakePlaybackRepository @Inject constructor() : PlaybackRepository {
 
+    init {
+        StubRuntime.playbackRepository = this
+    }
+
     private val queue = MutableStateFlow<List<QueueItem>>(emptyList())
     private val queueState = MutableStateFlow<QueueState?>(null)
     private val history = MutableStateFlow<List<PlayHistoryItem>>(emptyList())
     private val favorites = MutableStateFlow<List<FavoriteItem>>(emptyList())
+    private val playlists = MutableStateFlow<List<Playlist>>(emptyList())
+    private val playlistTracks = MutableStateFlow<Map<Long, List<QueueItem>>>(emptyMap())
+    private var nextPlaylistId: Long = 1L
 
     /** Test hook: count of clearStreamCache() invocations. */
     public var streamCacheClears: Int = 0
@@ -70,6 +78,55 @@ public class FakePlaybackRepository @Inject constructor() : PlaybackRepository {
         favorites.value = favorites.value.map { it.copy(missing = it.mediaId !in existingMediaIds) }
     }
 
+    // --- user playlists -----------------------------------------------------
+
+    override fun observePlaylists(): Flow<List<Playlist>> = playlists
+
+    override suspend fun createPlaylist(name: String): Long {
+        val id = nextPlaylistId++
+        playlists.value = playlists.value + Playlist(
+            id = id,
+            name = name,
+            createdAt = System.currentTimeMillis(),
+            trackCount = 0,
+        )
+        playlistTracks.value = playlistTracks.value + (id to emptyList())
+        return id
+    }
+
+    override suspend fun renamePlaylist(id: Long, name: String) {
+        playlists.value = playlists.value.map {
+            if (it.id == id) it.copy(name = name) else it
+        }
+    }
+
+    override suspend fun deletePlaylist(id: Long) {
+        playlists.value = playlists.value.filterNot { it.id == id }
+        playlistTracks.value = playlistTracks.value - id
+    }
+
+    override fun observePlaylistTracks(playlistId: Long): Flow<List<QueueItem>> =
+        playlistTracks.map { it[playlistId].orEmpty() }
+
+    override suspend fun addToPlaylist(playlistId: Long, item: QueueItem) {
+        val tracks = playlistTracks.value[playlistId].orEmpty()
+        playlistTracks.value = playlistTracks.value +
+            (playlistId to tracks + item.copy(position = tracks.size))
+        playlists.value = playlists.value.map {
+            if (it.id == playlistId) it.copy(trackCount = tracks.size + 1) else it
+        }
+    }
+
+    override suspend fun removeFromPlaylist(playlistId: Long, mediaId: String) {
+        val tracks = playlistTracks.value[playlistId].orEmpty()
+            .filterNot { it.mediaId == mediaId }
+            .mapIndexed { i, it -> it.copy(position = i) }
+        playlistTracks.value = playlistTracks.value + (playlistId to tracks)
+        playlists.value = playlists.value.map {
+            if (it.id == playlistId) it.copy(trackCount = tracks.size) else it
+        }
+    }
+
     override suspend fun clearStreamCache() {
         streamCacheClears++
     }
@@ -79,6 +136,8 @@ public class FakePlaybackRepository @Inject constructor() : PlaybackRepository {
         queueState.value = null
         history.value = emptyList()
         favorites.value = emptyList()
+        playlists.value = emptyList()
+        playlistTracks.value = emptyMap()
     }
 
     /** Seed helpers for previews/tests. */

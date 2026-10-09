@@ -21,6 +21,10 @@ import kotlinx.coroutines.flow.map
 @Singleton
 public class FakeLibraryRepository @Inject constructor() : LibraryRepository {
 
+    init {
+        StubRuntime.libraryRepository = this
+    }
+
     private val discsFlow = MutableStateFlow(DEFAULT_DISCS)
     private val tracksFlow = MutableStateFlow(DEFAULT_TRACKS)
     private val progress = MutableStateFlow(ScanProgress(0, null))
