@@ -31,15 +31,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pianostream.core.data.playback.model.MediaSource
-import com.pianostream.core.data.playback.model.PlayHistoryItem
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.designsystem.component.DiscCard
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.designsystem.component.PlaybackErrorState
 import com.pianostream.core.designsystem.component.SectionHeader
-import com.pianostream.core.designsystem.component.TrackRow
-import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.theme.Aurora
 
 /**
@@ -83,16 +80,35 @@ fun HomeScreen(
                 }
             }
         }
-        if (state.recentlyPlayed.isNotEmpty()) {
-            item { SectionHeader("Recently played") }
-            items(state.recentlyPlayed, key = { it.id }) { item ->
-                TrackRow(
-                    title = item.title,
-                    subtitle = item.artist,
-                    artworkUri = item.artworkUri,
-                    durationMs = null,
-                    onClick = { onPlayQueue(listOf(item.toQueueItem()), 0) },
+        if (state.recentItems.isNotEmpty()) {
+            // Hero: latest play as a resume card (Spotify "Jump back in").
+            item { SectionHeader("Jump back in") }
+            item {
+                val latest = state.recentItems.first()
+                JumpBackInCard(
+                    title = latest.title,
+                    subtitle = latest.artist,
+                    artworkUri = latest.artworkUri,
+                    onClick = { onPlayQueue(listOf(latest.toQueueItem()), 0) },
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
+            }
+            item { SectionHeader("Recently played") }
+            item {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.recentItems, key = { it.mediaId }) { recent ->
+                        DiscCard(
+                            title = recent.title,
+                            subtitle = recent.artist,
+                            artworkUri = recent.artworkUri,
+                            onClick = { onPlayQueue(listOf(recent.toQueueItem()), 0) },
+                            modifier = Modifier.width(148.dp),
+                        )
+                    }
+                }
             }
         }
 
@@ -200,7 +216,7 @@ fun HomeScreen(
 private fun com.pianostream.core.data.library.model.Disc.isSingle(): Boolean =
     cueUri.isNullOrEmpty()
 
-private fun PlayHistoryItem.toQueueItem(): QueueItem = QueueItem(
+private fun HomeViewModel.RecentItem.toQueueItem(): QueueItem = QueueItem(
     position = 0,
     mediaId = mediaId,
     title = title,
