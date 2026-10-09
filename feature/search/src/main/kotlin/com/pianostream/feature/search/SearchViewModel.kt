@@ -18,7 +18,6 @@ import com.pianostream.core.youtube.api.YouTubeItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +36,11 @@ import kotlinx.coroutines.launch
  *    YouTube scope chip is active — never on a local-only scope.
  *  - the YouTube section renders only after the per-session disclosure
  *    opt-in ([acceptYoutubeDisclosure]).
+ *
+ * Submit-only model: [onQueryChanged] edits text state only — no backend is
+ * touched per keystroke. [submit] (IME Search/Enter, suggestion chip, or a
+ * recent-searches row) is the single entry point that runs the query and
+ * writes recents. [clearQuery] wipes text + results instantly.
  */
 @HiltViewModel
 class SearchViewModel @Inject constructor(
@@ -82,6 +86,8 @@ class SearchViewModel @Inject constructor(
         val typeFilter: TypeFilter = TypeFilter.ALL,
         /** Newest-first recent queries — local data, shown on an empty field. */
         val recentQueries: List<String> = emptyList(),
+        /** Last query actually executed — results below belong to it. */
+        val submittedQuery: String = "",
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -155,15 +161,17 @@ class SearchViewModel @Inject constructor(
     /** First-run disclosure accepted for this session (F12). */
     fun acceptYoutubeDisclosure() {
         _state.update { it.copy(youtubeOptedIn = true) }
-        // Re-run the pending query on any scope that shows the YouTube
-        // section (ALL included) — otherwise the section stays empty until
-        // the user retypes, which reads as broken.
-        refresh(_state.value.query)
+        // Re-run the last submitted query on any scope that shows the
+        // YouTube section (ALL included) — otherwise the section stays
+        // empty until the user resubmits, which reads as broken.
+        refresh(_state.value.submittedQuery)
     }
 
     fun setScope(scope: Scope) {
         _state.update { it.copy(scope = scope) }
-        refresh(_state.value.query)
+        // Re-running the submitted query under the new scope is an explicit
+        // user action — never the in-flight text.
+        refresh(_state.value.submittedQuery)
     }
 
     /**
@@ -196,12 +204,40 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Text edits only. No backend call, no recents write — the query runs
+     * exclusively on [submit].
+     */
     fun onQueryChanged(query: String) {
         _state.update { it.copy(query = query) }
+    }
+
+    /** IME Search/Enter — runs the field's current text. */
+    fun submit() = submit(_state.value.query)
+
+    /**
+     * Runs [text] (a suggestion chip or recent-searches row taps in their
+     * own query) — sets the field text then executes it once.
+     */
+    fun submit(text: String) {
+        _state.update { it.copy(query = text) }
         searchJob?.cancel()
-        searchJob = viewModelScope.launch {
-            delay(300) // debounce — one query burst per idle pause
-            runQuery(query)
+        searchJob = viewModelScope.launch { runQuery(text) }
+    }
+
+    /** Trailing ✕ — clears text and results instantly, no network. */
+    fun clearQuery() {
+        searchJob?.cancel()
+        _state.update {
+            it.copy(
+                query = "",
+                submittedQuery = "",
+                localHits = emptyList(),
+                youtubeItems = emptyList(),
+                suggestions = emptyList(),
+                searching = false,
+                youtubeError = false,
+            )
         }
     }
 
@@ -215,6 +251,7 @@ class SearchViewModel @Inject constructor(
         if (query.isBlank()) {
             _state.update {
                 it.copy(
+                    submittedQuery = "",
                     localHits = emptyList(),
                     youtubeItems = emptyList(),
                     suggestions = emptyList(),
@@ -223,7 +260,7 @@ class SearchViewModel @Inject constructor(
             }
             return
         }
-        _state.update { it.copy(searching = true) }
+        _state.update { it.copy(searching = true, submittedQuery = query) }
         try {
             if (s.scope != Scope.YOUTUBE) {
                 // verbatim — LibrarySearchDao owns FTS syntax (F16)
@@ -252,28 +289,27 @@ class SearchViewModel @Inject constructor(
             if (canYoutube) {
                 runCatching {
                     when (link) {
-                        is YoutubeLink.Playlist ->
-                            youTubeClient.browse("VL${link.id}")
+                        is YoutubeLink.Playlist -> loadPlaylist(link.id)
                         else ->
                             // Server resolves pasted URLs and bare ids alike
                             // (verified: youtu.be/<id> returns the video).
                             youTubeClient.search(query, SearchFilter.ALL)
+                                .let { p ->
+                                    p.title to p.sections.flatMap { s2 -> s2.items }
+                                }
                     }
-                }.onSuccess { page ->
+                }.onSuccess { (title, items) ->
                     _state.update {
                         // Dedupe — link searches echo the same videoId many
                         // times and LazyColumn keys must be unique.
                         it.copy(
-                            youtubeItems = page.sections
-                                .flatMap { s2 -> s2.items }
+                            youtubeItems = items
                                 .distinctBy { item -> item.videoId ?: item.title },
                             youtubeError = false,
                         )
                     }
                     if (link != null) {
-                        val resolved = page.title
-                            ?: page.sections.firstOrNull()?.items?.firstOrNull()?.title
-                        recentSearches.record(resolved ?: query)
+                        recentSearches.record(title ?: items.firstOrNull()?.title ?: query)
                     }
                 }.onFailure {
                     // Silent failure read as "No results" — surface a flag so
@@ -304,12 +340,60 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    /**
+     * PLAYLIST-kind row → "Play all": expands the playlist into its tracks
+     * (the same [loadPlaylist] a pasted `list=` link uses). Returns items
+     * with videoIds ready for `QueueItem` mapping; empty on failure so the
+     * caller can toast instead of queueing a dead page.
+     */
+    suspend fun playlistTracks(browseId: String?): List<YouTubeItem> {
+        val id = browseId?.removePrefix("VL")?.takeIf { it.isNotEmpty() }
+            ?: return emptyList()
+        return runCatching { loadPlaylist(id).second }
+            .onFailure {
+                runCatching {
+                    android.util.Log.w(
+                        "SearchViewModel",
+                        "Playlist expand failed: ${it.javaClass.simpleName}",
+                    )
+                }
+            }
+            .getOrDefault(emptyList())
+    }
+
+    /**
+     * `browse("VL<list>")` + continuation pages: playlists over one page
+     * (≈100 tracks) keep coming as bare `continuationItems`. Bounded so a
+     * pathological playlist can't page forever.
+     */
+    private suspend fun loadPlaylist(playlistId: String): Pair<String?, List<YouTubeItem>> {
+        val items = ArrayList<YouTubeItem>()
+        var page = youTubeClient.browse("VL$playlistId")
+        val title = page.title
+        page.sections.forEach { items += it.items }
+        var continuation = page.continuation
+        var pages = 1
+        while (continuation != null &&
+            pages < MAX_PLAYLIST_PAGES &&
+            items.size < MAX_PLAYLIST_TRACKS
+        ) {
+            page = youTubeClient.browse("VL$playlistId", continuation)
+            page.sections.forEach { items += it.items }
+            continuation = page.continuation
+            pages++
+        }
+        return title to items
+    }
+
     private sealed interface YoutubeLink {
         data class Video(val id: String) : YoutubeLink
         data class Playlist(val id: String) : YoutubeLink
     }
 
     private companion object {
+        /** Playlist expansion bounds — pages, then absolute track count. */
+        const val MAX_PLAYLIST_PAGES = 5
+        const val MAX_PLAYLIST_TRACKS = 500
         val VIDEO_ID = Regex("^[A-Za-z0-9_-]{11}$")
         val WATCH_URL = Regex("(?:[?&]v=|youtu\\.be/|shorts/|/watch/|embed/)([A-Za-z0-9_-]{11})")
         val LIST_URL = Regex("[?&]list=([A-Za-z0-9_-]+)")

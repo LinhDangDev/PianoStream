@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -37,6 +39,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -62,8 +66,9 @@ import com.pianostream.core.designsystem.theme.Aurora
 import com.pianostream.core.youtube.api.YouTubeItem
 
 /**
- * Search — debounced input, scope chips (All / This device / YouTube) plus a
- * second chip row filtering results by kind (All / Songs / Videos / Artists /
+ * Search — submit-only input (IME Search/Enter runs the query; typing never
+ * hits backends), scope chips (All / This device / YouTube) plus a second
+ * chip row filtering results by kind (All / Songs / Videos / Artists /
  * Albums / Playlists). An empty field shows recent searches; results render
  * Spotify-style — a "Top result" hero then "This device" and per-kind YouTube
  * sections capped at four rows with "See all" applying the kind's chip.
@@ -95,7 +100,21 @@ fun SearchScreen(
             leadingIcon = {
                 Icon(Icons.Outlined.Search, contentDescription = null, tint = Aurora.TextSecondary)
             },
+            trailingIcon = {
+                if (state.query.isNotEmpty()) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Clear search",
+                        tint = Vinyl.GoldDim,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable { viewModel.clearQuery() },
+                    )
+                }
+            },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { viewModel.submit() }),
             shape = RoundedCornerShape(28.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Vinyl.Gold,
@@ -168,7 +187,7 @@ fun SearchScreen(
                 for (s in state.suggestions.take(3)) {
                     FilterChip(
                         selected = false,
-                        onClick = { viewModel.onQueryChanged(s) },
+                        onClick = { viewModel.submit(s) },
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = Color(0xFF1E1F23),
                             labelColor = Aurora.TextSecondary,
@@ -205,22 +224,35 @@ fun SearchScreen(
                 items(state.recentQueries, key = { "recent:$it" }) { recent ->
                     RecentSearchRow(
                         query = recent,
-                        onClick = { viewModel.onQueryChanged(recent) },
+                        onClick = { viewModel.submit(recent) },
                         onRemove = { viewModel.removeRecent(recent) },
                     )
                 }
             }
 
+            // The field holds unsubmitted text — tell the user how it runs.
+            if (state.query.isNotBlank() && state.query != state.submittedQuery &&
+                !state.searching
+            ) {
+                item(key = "submit-hint") {
+                    Text(
+                        "Press ⏎ to search for “${state.query}”",
+                        color = Aurora.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    )
+                }
+            }
+
             if (visibleLocal.isEmpty() && visibleYoutube.isEmpty() &&
-                state.query.isNotBlank() && !state.searching
+                state.submittedQuery.isNotBlank() && !state.searching
             ) {
                 item {
                     EmptyState(
                         title = "No results",
                         body = if (state.typeFilter == SearchViewModel.TypeFilter.ALL) {
-                            "Nothing in your library matches “${state.query}”."
+                            "Nothing in your library matches “${state.submittedQuery}”."
                         } else {
-                            "No ${state.typeFilter.label()} results for “${state.query}”."
+                            "No ${state.typeFilter.label()} results for “${state.submittedQuery}”."
                         },
                     )
                 }
@@ -408,8 +440,30 @@ fun SearchScreen(
                                 artworkUri = item.artworkUri,
                                 durationMs = item.durationMs,
                                 onClick = {
-                                    item.videoId?.let { vid ->
-                                        onPlayQueue(listOf(item.toQueueItem(vid)), 0)
+                                    when {
+                                        // PLAYLIST row → "Play all": expand
+                                        // the list, queue every track.
+                                        item.kind == YouTubeItem.Kind.PLAYLIST -> {
+                                            scope.launch {
+                                                val rows = viewModel
+                                                    .playlistTracks(item.browseId)
+                                                    .mapNotNull { t ->
+                                                        t.videoId?.let { vid -> t.toQueueItem(vid) }
+                                                    }
+                                                if (rows.isEmpty()) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "No playable tracks in this playlist",
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                } else {
+                                                    onPlayQueue(rows, 0)
+                                                }
+                                            }
+                                        }
+                                        else -> item.videoId?.let { vid ->
+                                            onPlayQueue(listOf(item.toQueueItem(vid)), 0)
+                                        }
                                     }
                                 },
                                 trailing = {

@@ -136,42 +136,68 @@ internal class InnerTubeClientImpl(
                     ?.let { it as? JsonObject }
                     ?.obj("nextContinuationData")?.str("continuation")
             }
-        val title = body.findDeep("title")?.let { it as? JsonObject }?.textRuns()
         return YouTubePage(
-            title = title,
+            title = pageTitle(body),
             sections = sections,
             continuation = continuation,
         )
+    }
+
+    /**
+     * Playlist pages put the real title in `microformatDataRenderer.title`;
+     * the first bare `title` in the body is the sort menu's ("Sort"). Fall
+     * back to a header renderer's title, then to the deep scan (search
+     * pages have no microformat block).
+     */
+    private fun pageTitle(body: JsonObject): String? =
+        body.findDeep("microformatDataRenderer")
+            ?.let { it as? JsonObject }?.str("title")
+            ?: headerTitle(body)
+            ?: body.findDeep("title")?.let { it as? JsonObject }?.textRuns()
+
+    private fun headerTitle(node: JsonObject): String? {
+        for (key in headerRenderers) {
+            node[key]?.let { it as? JsonObject }
+                ?.obj("title")?.textRuns()?.let { return it }
+        }
+        for ((_, v) in node) {
+            when (v) {
+                is JsonObject -> headerTitle(v)?.let { return it }
+                is kotlinx.serialization.json.JsonArray ->
+                    v.forEach { (it as? JsonObject)?.let { e -> headerTitle(e)?.let { t -> return t } } }
+                else -> Unit
+            }
+        }
+        return null
     }
 
     private fun collectSections(node: JsonObject, out: MutableList<YouTubeSection>) {
         // A section is any musicShelfRenderer / musicCardShelfRenderer /
         // musicImmersiveCarouselShelfRenderer block with contents. Current
         // search responses also return itemSectionRenderer containers holding
-        // the same per-item renderer objects directly.
-        val shelfRenderers = listOf(
-            "musicShelfRenderer",
-            "musicCardShelfRenderer",
-            "musicImmersiveCarouselShelfRenderer",
-            "musicCarouselShelfRenderer",
-            "itemSectionRenderer",
-        )
+        // the same per-item renderer objects directly. VL<playlistId> browse
+        // pages use musicPlaylistShelfRenderer for their track list.
         for (key in shelfRenderers) {
             node[key]?.let { it as? JsonObject }?.let { shelf ->
-                val items = mutableListOf<YouTubeItem>()
-                val contents = shelf.arr("contents") ?: shelf.arr("items") ?: emptyList()
-                for (c in contents) {
-                    val element = c as? JsonObject ?: continue
-                    val rendererKey = element.keys.firstOrNull() ?: continue
-                    val renderer = element[rendererKey] as? JsonObject ?: continue
-                    ItemParser.parse(renderer, rendererKey)?.let(items::add)
-                }
+                val items = parseItems(
+                    shelf.arr("contents") ?: shelf.arr("items") ?: emptyList()
+                )
                 if (items.isNotEmpty()) {
                     out += YouTubeSection(
                         title = shelf.obj("title")?.textRuns(),
                         items = items,
                     )
                 }
+            }
+        }
+        // Continuation pages return bare item lists with no shelf wrapper:
+        // `appendContinuationItemsAction.continuationItems`, or a
+        // `*Continuation` object's `contents` (e.g.
+        // playlistVideoListContinuation / musicShelfContinuation).
+        node.arr("continuationItems")?.let { addBareItems(it, out) }
+        for ((k, v) in node) {
+            if (k.endsWith("Continuation")) {
+                (v as? JsonObject)?.arr("contents")?.let { addBareItems(it, out) }
             }
         }
         for ((_, v) in node) {
@@ -184,8 +210,43 @@ internal class InnerTubeClientImpl(
         }
     }
 
+    /** Parse a bare renderer-element list into an untitled section. */
+    private fun addBareItems(contents: List<kotlinx.serialization.json.JsonElement>, out: MutableList<YouTubeSection>) {
+        val items = parseItems(contents)
+        if (items.isNotEmpty()) out += YouTubeSection(title = null, items = items)
+    }
+
+    private fun parseItems(contents: List<kotlinx.serialization.json.JsonElement>): List<YouTubeItem> {
+        val items = mutableListOf<YouTubeItem>()
+        for (c in contents) {
+            val element = c as? JsonObject ?: continue
+            val rendererKey = element.keys.firstOrNull() ?: continue
+            val renderer = element[rendererKey] as? JsonObject ?: continue
+            ItemParser.parse(renderer, rendererKey)?.let(items::add)
+        }
+        return items
+    }
+
     private companion object {
         val JSON = "application/json; charset=utf-8".toMediaType()
+
+        val shelfRenderers = listOf(
+            "musicShelfRenderer",
+            "musicCardShelfRenderer",
+            "musicImmersiveCarouselShelfRenderer",
+            "musicCarouselShelfRenderer",
+            "musicPlaylistShelfRenderer",
+            "itemSectionRenderer",
+        )
+
+        /** Header blocks carrying the page title on browse pages. */
+        val headerRenderers = listOf(
+            "musicResponsiveHeaderRenderer",
+            "musicEditablePlaylistDetailHeaderRenderer",
+            "musicDetailHeaderRenderer",
+            "musicImmersiveHeaderRenderer",
+            "musicVisualHeaderRenderer",
+        )
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)

@@ -100,9 +100,14 @@ class SearchViewModelTest {
             )
         }
 
+        var browseResponder: ((String, String?) -> YouTubePage)? = null
+        val browseArgs = mutableListOf<Pair<String, String?>>()
+
         override suspend fun browse(browseId: String, continuation: String?): YouTubePage {
             browseCalls++
-            return YouTubePage(null, emptyList(), null)
+            browseArgs.add(browseId to continuation)
+            return browseResponder?.invoke(browseId, continuation)
+                ?: YouTubePage(null, emptyList(), null)
         }
 
         override suspend fun suggestions(query: String): List<String> {
@@ -238,14 +243,20 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `rapid query changes run once after 300ms debounce`() = runTest() {
+    fun `typing never queries — submit runs the text once`() = runTest() {
         vm = makeVm(this)
         vm.onQueryChanged("h")
         vm.onQueryChanged("ha")
         vm.onQueryChanged("haydn")
-        advanceTimeBy(299)
+        // No debounce fallback: arbitrary time passing fires nothing.
+        advanceTimeBy(5_000)
+        advanceUntilIdle()
+        Thread.sleep(50)
         assertThat(library.searchQueries).isEmpty()
-        advanceTimeBy(2)
+        assertThat(youtube.searchCalls).isEqualTo(0)
+        assertThat(youtube.browseCalls).isEqualTo(0)
+
+        vm.submit()
         advanceUntilIdle()
         eventually { library.searchQueries.isNotEmpty() }
         // Exactly one run of the final query (verbatim, F16).
@@ -253,10 +264,111 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `typing writes no recents — submit records once`() = runTest() {
+        vm = makeVm(this)
+        vm.onQueryChanged("h")
+        vm.onQueryChanged("haydn")
+        advanceTimeBy(5_000)
+        advanceUntilIdle()
+        Thread.sleep(50)
+        assertThat(recents.recent.value).isEmpty()
+        vm.submit()
+        advanceUntilIdle()
+        eventually { recents.recent.value.isNotEmpty() }
+        assertThat(recents.recent.value).containsExactly("haydn")
+    }
+
+    @Test
+    fun `clearQuery wipes text and results instantly`() = runTest() {
+        vm = makeVm(this)
+        vm.submit("haydn")
+        advanceUntilIdle()
+        eventually { library.searchQueries.isNotEmpty() }
+        eventually { vm.state.value.localHits.isNotEmpty() }
+        vm.clearQuery()
+        assertThat(vm.state.value.query).isEmpty()
+        assertThat(vm.state.value.submittedQuery).isEmpty()
+        assertThat(vm.state.value.localHits).isEmpty()
+        assertThat(vm.state.value.youtubeItems).isEmpty()
+        assertThat(vm.state.value.searching).isFalse()
+    }
+
+    @Test
+    fun `scope switch re-runs the submitted query, not pending text`() = runTest() {
+        vm = makeVm(this)
+        vm.submit("mozart")
+        advanceUntilIdle()
+        eventually { library.searchQueries.isNotEmpty() }
+        vm.onQueryChanged("bach")
+        vm.setScope(SearchViewModel.Scope.LOCAL)
+        advanceUntilIdle()
+        eventually { library.searchQueries.size >= 2 }
+        assertThat(library.searchQueries).doesNotContain("bach")
+        assertThat(library.searchQueries.last()).isEqualTo("mozart")
+    }
+
+    @Test
+    fun `playlist link browses VL and pages the continuation`() = runTest() {
+        fun track(id: String, title: String) = YouTubeItem(
+            YouTubeItem.Kind.TRACK, id, null, title, "ch", null, 1000L,
+        )
+        youtube.browseResponder = { browseId, continuation ->
+            when (continuation) {
+                null -> YouTubePage(
+                    title = "My Playlist",
+                    sections = listOf(
+                        YouTubeSection(null, listOf(track("aaaaaaaaaaa", "One"), track("bbbbbbbbbbb", "Two"))),
+                    ),
+                    continuation = "tok2",
+                )
+                else -> YouTubePage(
+                    title = null,
+                    sections = listOf(YouTubeSection(null, listOf(track("ccccccccccc", "Three")))),
+                    continuation = null,
+                )
+            }
+        }
+        vm = makeVm(this)
+        vm.submit("https://music.youtube.com/playlist?list=PLtest")
+        advanceUntilIdle()
+        eventually { youtube.browseCalls >= 2 }
+        assertThat(youtube.browseArgs[0]).isEqualTo("VLPLtest" to null)
+        assertThat(youtube.browseArgs[1].second).isEqualTo("tok2")
+        eventually { vm.state.value.youtubeItems.size == 3 }
+        assertThat(vm.state.value.youtubeItems.map { it.videoId })
+            .containsExactly("aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc").inOrder()
+        // The playlist title, not the raw URL, lands in recents.
+        eventually { recents.recent.value.isNotEmpty() }
+        assertThat(recents.recent.value.first()).isEqualTo("My Playlist")
+    }
+
+    @Test
+    fun `playlistTracks expands a playlist row for Play all`() = runTest() {
+        youtube.browseResponder = { _, _ ->
+            YouTubePage(
+                title = "Mix",
+                sections = listOf(
+                    YouTubeSection(
+                        null,
+                        listOf(
+                            YouTubeItem(YouTubeItem.Kind.TRACK, "ddddddddddd", null, "T", "ch", null, 1L),
+                        ),
+                    ),
+                ),
+                continuation = null,
+            )
+        }
+        vm = makeVm(this)
+        // Bare playlist id and VL-prefixed browseId both expand.
+        assertThat(vm.playlistTracks("PLxyz").map { it.videoId }).containsExactly("ddddddddddd")
+        assertThat(vm.playlistTracks("VLPLxyz").map { it.videoId }).containsExactly("ddddddddddd")
+        assertThat(vm.playlistTracks(null)).isEmpty()
+    }
+
+    @Test
     fun `raw input forwarded verbatim to library search`() = runTest() {
         vm = makeVm(this)
-        vm.onQueryChanged("""OR NEAR( "quoted" * """)
-        advanceTimeBy(400)
+        vm.submit("""OR NEAR( "quoted" * """)
         advanceUntilIdle()
         eventually { library.searchQueries.isNotEmpty() }
         assertThat(library.searchQueries).containsExactly("""OR NEAR( "quoted" * """)
@@ -266,8 +378,7 @@ class SearchViewModelTest {
     fun `localOnlySearch zero YouTube calls (F12)`() = runTest() {
         settings.setLocalOnlySearch(true)
         vm = makeVm(this)
-        vm.onQueryChanged("mozart")
-        advanceTimeBy(400)
+        vm.submit("mozart")
         advanceUntilIdle()
         eventually { library.searchQueries.isNotEmpty() }
         Thread.sleep(100)
@@ -282,8 +393,7 @@ class SearchViewModelTest {
         vm = makeVm(this)
         vm.acceptYoutubeDisclosure()
         vm.setScope(SearchViewModel.Scope.LOCAL)
-        vm.onQueryChanged("mozart")
-        advanceTimeBy(400)
+        vm.submit("mozart")
         advanceUntilIdle()
         eventually { library.searchQueries.isNotEmpty() }
         Thread.sleep(100)
@@ -297,16 +407,14 @@ class SearchViewModelTest {
         vm = makeVm(this)
         vm.acceptYoutubeDisclosure()
         vm.setScope(SearchViewModel.Scope.YOUTUBE)
-        vm.onQueryChanged("chop")
-        advanceTimeBy(400)
+        vm.submit("chop")
         advanceUntilIdle()
         eventually { youtube.searchCalls == 1 }
         assertThat(youtube.suggestionCalls).isEqualTo(0)
         assertThat(youtube.searchCalls).isEqualTo(1)
 
         settings.setSendSearchSuggestions(true)
-        vm.onQueryChanged("chopin")
-        advanceTimeBy(400)
+        vm.submit("chopin")
         advanceUntilIdle()
         eventually { youtube.suggestionCalls > 0 }
         assertThat(youtube.suggestionCalls).isGreaterThan(0)
@@ -315,21 +423,18 @@ class SearchViewModelTest {
     @Test
     fun `submit records query in recents, re-run moves to front`() = runTest() {
         vm = makeVm(this)
-        vm.onQueryChanged("haydn")
-        advanceTimeBy(400)
+        vm.submit("haydn")
         advanceUntilIdle()
         eventually { recents.recent.value.isNotEmpty() }
         assertThat(recents.recent.value).containsExactly("haydn")
 
-        vm.onQueryChanged("mozart")
-        advanceTimeBy(400)
+        vm.submit("mozart")
         advanceUntilIdle()
         eventually { recents.recent.value.firstOrNull() == "mozart" }
         assertThat(recents.recent.value).containsExactly("mozart", "haydn").inOrder()
 
         // Re-running an existing entry dedupes it back to the front.
-        vm.onQueryChanged("haydn")
-        advanceTimeBy(400)
+        vm.submit("haydn")
         advanceUntilIdle()
         eventually { recents.recent.value.firstOrNull() == "haydn" }
         assertThat(recents.recent.value).containsExactly("haydn", "mozart").inOrder()
@@ -366,8 +471,7 @@ class SearchViewModelTest {
     @Test
     fun `pasted link records the resolved title`() = runTest() {
         vm = makeVm(this)
-        vm.onQueryChanged("https://youtu.be/aaaaaaaaaaa")
-        advanceTimeBy(400)
+        vm.submit("https://youtu.be/aaaaaaaaaaa")
         advanceUntilIdle()
         eventually { youtube.searchCalls > 0 }
         eventually { recents.recent.value.isNotEmpty() }
@@ -388,8 +492,7 @@ class SearchViewModelTest {
     fun `youtube skipped until disclosure accepted`() = runTest() {
         vm = makeVm(this)
         vm.setScope(SearchViewModel.Scope.YOUTUBE)
-        vm.onQueryChanged("haydn")
-        advanceTimeBy(400)
+        vm.submit("haydn")
         advanceUntilIdle()
         Thread.sleep(100)
         assertThat(youtube.searchCalls).isEqualTo(0)

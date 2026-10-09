@@ -80,9 +80,11 @@ internal object ItemParser {
     }
 
     private fun firstVideoId(r: JsonObject): String? =
-        r.findDeep("videoId")?.contentOrNullSafe
-            ?: r.obj("playlistItemData")?.str("videoId")
+        // `playlistItemData` is the item's own id — checked first so a
+        // nested menu's watch endpoint (e.g. "Start radio") can't win.
+        r.obj("playlistItemData")?.str("videoId")
             ?: r.obj("onTap")?.obj("watchEndpoint")?.str("videoId")
+            ?: r.findDeep("videoId")?.contentOrNullSafe
 
     private fun firstBrowseId(r: JsonObject): String? =
         (r.findDeep("browseEndpoint") as? JsonObject)?.str("browseId")
