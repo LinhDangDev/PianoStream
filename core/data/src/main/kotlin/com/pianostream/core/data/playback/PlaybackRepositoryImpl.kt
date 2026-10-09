@@ -145,6 +145,10 @@ class PlaybackRepositoryImpl @Inject constructor(
                     name = it.playlist.name,
                     createdAt = it.playlist.createdAt,
                     trackCount = it.trackCount,
+                    description = it.playlist.description,
+                    coverUris = it.playlist.coverUris
+                        .split('\n')
+                        .filter { uri -> uri.isNotBlank() },
                 )
             }
         }
@@ -154,6 +158,10 @@ class PlaybackRepositoryImpl @Inject constructor(
 
     override suspend fun renamePlaylist(id: Long, name: String) {
         playlistDao.rename(id, name.trim())
+    }
+
+    override suspend fun updatePlaylistDetails(id: Long, name: String, description: String) {
+        playlistDao.updateDetails(id, name.trim(), description.trim())
     }
 
     override suspend fun deletePlaylist(id: Long) = playlistDao.delete(id)
@@ -168,7 +176,7 @@ class PlaybackRepositoryImpl @Inject constructor(
                     artist = e.artist,
                     artworkUri = e.artworkUri,
                     source = MediaSource.valueOf(e.source),
-                    durationMs = null,
+                    durationMs = e.durationMs,
                     addedAt = e.addedAt,
                 )
             }
@@ -185,12 +193,38 @@ class PlaybackRepositoryImpl @Inject constructor(
                 artworkUri = item.artworkUri,
                 source = item.source.name,
                 addedAt = nowMs(),
+                durationMs = item.durationMs,
             ),
         )
+        refreshCover(playlistId)
     }
 
-    override suspend fun removeFromPlaylist(playlistId: Long, mediaId: String) =
+    override suspend fun removeFromPlaylist(playlistId: Long, mediaId: String) {
         playlistItemDao.delete(playlistId, mediaId)
+        refreshCover(playlistId)
+    }
+
+    override suspend fun movePlaylistItem(playlistId: Long, fromPosition: Int, toPosition: Int) {
+        playlistItemDao.move(playlistId, fromPosition, toPosition)
+        refreshCover(playlistId)
+    }
+
+    override fun observePlaylistsContaining(mediaId: String): Flow<List<Long>> =
+        playlistItemDao.observePlaylistsContaining(mediaId)
+
+    override suspend fun removeFromAllPlaylists(mediaId: String) {
+        val affected = playlistItemDao.playlistIdsContaining(mediaId)
+        playlistItemDao.deleteEverywhere(mediaId)
+        affected.forEach { refreshCover(it) }
+    }
+
+    /** Rebuilds the generated cover mosaic cache after any membership change. */
+    private suspend fun refreshCover(playlistId: Long) {
+        playlistDao.updateCover(
+            playlistId,
+            playlistDao.topArtwork(playlistId).joinToString("\n"),
+        )
+    }
 
     // --- reconcile / wipe -------------------------------------------------
 
