@@ -7,7 +7,10 @@ import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.data.settings.SettingsDataStore.ReplayGainMode
 import com.pianostream.core.data.settings.SettingsDataStore.TaskRemovalPolicy
 import com.pianostream.core.data.settings.SettingsDataStore.ThemeMode
+import com.pianostream.core.data.downloads.DownloadItem
+import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.data.playback.PlaybackRepository
+import com.pianostream.core.media.downloads.DownloadManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +32,7 @@ public class SettingsViewModel @Inject constructor(
     private val settings: SettingsDataStore,
     private val playback: PlaybackRepository,
     private val wiper: LocalDataWiper,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
 
     public data class UiState(
@@ -58,12 +62,18 @@ public class SettingsViewModel @Inject constructor(
         /** First delete-all confirm; second tap inside dialog commits (R2). */
         val confirmDeleteAll: Boolean = false,
         val deleteAllRunning: Boolean = false,
+        /** Finished downloads on disk — the Storage section's summary row. */
+        val downloadCount: Int = 0,
+        val downloadBytes: Long = 0L,
+        /** "Clear all downloads" confirm dialog. */
+        val confirmClearDownloads: Boolean = false,
     )
 
     private data class DialogState(
         val remoteConfig: Boolean = false,
         val deleteAll: Boolean = false,
         val wiping: Boolean = false,
+        val clearDownloads: Boolean = false,
     )
 
     private val dialogs = MutableStateFlow(DialogState())
@@ -97,6 +107,7 @@ public class SettingsViewModel @Inject constructor(
             settings.gapless,
             settings.normalizeVolume,
             searchQuery,
+            downloadManager.downloads,
         ) { v: Array<Any?> -> v },
     ) { a: Array<Any?>, b: Array<Any?>, c: Array<Any?> ->
         UiState(
@@ -122,6 +133,12 @@ public class SettingsViewModel @Inject constructor(
             gapless = c[2] as Boolean,
             normalizeVolume = c[3] as Boolean,
             searchQuery = c[4] as String,
+            downloadCount = (c[5] as Map<String, DownloadItem>).values
+                .count { it.state == DownloadState.DONE },
+            downloadBytes = (c[5] as Map<String, DownloadItem>).values
+                .filter { it.state == DownloadState.DONE }
+                .sumOf { it.bytesDownloaded },
+            confirmClearDownloads = (b[4] as DialogState).clearDownloads,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, UiState())
 
@@ -216,6 +233,21 @@ public class SettingsViewModel @Inject constructor(
 
     public fun clearStreamCache() {
         viewModelScope.launch { playback.clearStreamCache() }
+    }
+
+    // Downloads — same request→confirm dance as delete-all.
+    public fun requestClearDownloads() {
+        dialogs.value = dialogs.value.copy(clearDownloads = true)
+    }
+
+    public fun cancelClearDownloads() {
+        dialogs.value = dialogs.value.copy(clearDownloads = false)
+    }
+
+    public fun confirmClearDownloads() {
+        if (!dialogs.value.clearDownloads) return
+        dialogs.value = dialogs.value.copy(clearDownloads = false)
+        viewModelScope.launch { downloadManager.clearAll() }
     }
 
     // Library

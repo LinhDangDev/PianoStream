@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Timeline
+import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.designsystem.component.TrackRow
 import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.component.VinylDisc
@@ -185,6 +187,7 @@ fun QueueSheet(
                 currentIndex = current,
                 isPlaying = state.isPlaying,
                 haptic = haptic,
+                downloadedIds = state.downloadedIds,
                 onPlay = viewModel::playAt,
                 onRemove = viewModel::removeAt,
             )
@@ -198,6 +201,7 @@ fun QueueSheet(
                     currentIndex = current,
                     isPlaying = state.isPlaying,
                     haptic = haptic,
+                    downloadedIds = state.downloadedIds,
                     onPlay = viewModel::playAt,
                     onRemove = viewModel::removeAt,
                 )
@@ -212,12 +216,21 @@ fun QueueSheet(
                 currentIndex = current,
                 isPlaying = state.isPlaying,
                 haptic = haptic,
+                downloadedIds = state.downloadedIds,
                 onPlay = viewModel::playAt,
                 onRemove = viewModel::removeAt,
             )
         }
     }
 }
+
+/** videoId for queue-row mediaIds (`pianostream://stream|video/<id>`). */
+private fun queueItemVideoId(mediaId: String): String? =
+    when (val parsed = PianoStreamUri.parse(mediaId)) {
+        is PianoStreamUri.Id.Stream -> parsed.videoId
+        is PianoStreamUri.Id.Video -> parsed.videoId
+        else -> null
+    }
 
 /** Queue rows for the consecutive timeline range [startIndex, startIndex+count). */
 private fun LazyListScope.queueItems(
@@ -228,6 +241,7 @@ private fun LazyListScope.queueItems(
     currentIndex: Int,
     isPlaying: Boolean,
     haptic: HapticFeedback,
+    downloadedIds: Set<String>,
     onPlay: (Int) -> Unit,
     onRemove: (Int) -> Unit,
 ) {
@@ -247,6 +261,7 @@ private fun LazyListScope.queueItems(
                 isCurrent = isCurrent,
                 isPlaying = isCurrent && isPlaying,
                 isDragging = isDragging,
+                downloaded = queueItemVideoId(item.mediaId) in downloadedIds,
                 onClick = { onPlay(i) },
                 onRemove = { onRemove(i) },
                 handleModifier = Modifier.draggableHandle(
@@ -355,6 +370,7 @@ private fun QueueRow(
     isCurrent: Boolean,
     isPlaying: Boolean,
     isDragging: Boolean,
+    downloaded: Boolean = false,
     onClick: () -> Unit,
     onRemove: () -> Unit,
     handleModifier: Modifier,
@@ -412,6 +428,16 @@ private fun QueueRow(
                         EqualizerBars(
                             playing = isPlaying,
                             modifier = Modifier.padding(end = 2.dp),
+                        )
+                    }
+                    if (downloaded) {
+                        Icon(
+                            Icons.Filled.DownloadDone,
+                            contentDescription = "Downloaded for offline play",
+                            tint = Vinyl.Gold,
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(16.dp),
                         )
                     }
                     IconButton(onClick = onRemove) {

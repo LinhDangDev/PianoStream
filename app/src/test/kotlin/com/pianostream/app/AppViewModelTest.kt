@@ -16,11 +16,23 @@ import com.pianostream.core.data.playback.model.PlayHistoryItem
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import com.pianostream.core.data.settings.SettingsDataStore
+import com.pianostream.core.data.library.LibraryRepository
+import com.pianostream.core.data.library.model.Disc
+import com.pianostream.core.data.library.model.ScanProgress
+import com.pianostream.core.data.library.model.ScanResult
+import com.pianostream.core.data.library.model.SearchHit
+import com.pianostream.core.data.library.model.Track
+import com.pianostream.core.data.downloads.DownloadItem
+import com.pianostream.core.data.downloads.DownloadRepository
+import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.local.api.LocalTrackWindowSource
 import com.pianostream.core.local.api.LocalWindowsResult
 import com.pianostream.core.media.api.PlaybackController
+import com.pianostream.core.media.downloads.DownloadManager
 import com.pianostream.core.media.local.LocalMediaItemFactory
 import com.pianostream.core.media.queue.QueueAssembler
+import com.pianostream.core.youtube.api.ResolvedStream
+import com.pianostream.core.youtube.api.StreamResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -166,7 +178,61 @@ class AppViewModelTest {
     )
 
     private fun vm(repo: PlaybackRepository) =
-        AppViewModel(controller, repo, assembler(), settings)
+        AppViewModel(controller, repo, assembler(), FakeLibrary(), settings, downloadManager())
+
+    private class FakeLibrary : LibraryRepository {
+        override val discs: Flow<List<Disc>> = flowOf(emptyList())
+        override fun observeTracks(discId: Long): Flow<List<Track>> = flowOf(emptyList())
+        override suspend fun discById(id: Long): Disc? = null
+        override suspend fun tracksOf(discId: Long): List<Track> = emptyList()
+        override fun search(query: String): Flow<List<SearchHit>> = flowOf(emptyList())
+        override suspend fun distinctComposers(): List<String> = emptyList()
+        override val scanProgress: Flow<ScanProgress> = flowOf(ScanProgress(0, null))
+        override suspend fun startScan(): ScanResult = ScanResult(0, 0, 0, 0)
+        override suspend fun revokeLibraryAccess() {}
+        override suspend fun clearAll() {}
+    }
+
+    private fun downloadManager() = DownloadManager(
+        context = RuntimeEnvironment.getApplication(),
+        resolver = NeverResolve(),
+        okHttp = okhttp3.OkHttpClient(),
+        repository = FakeDownloadRepository(),
+    )
+
+    /** Streams never resolve in unit tests — no network is attempted. */
+    private class NeverResolve : StreamResolver {
+        override suspend fun resolve(
+            videoId: String,
+            preferredItag: Int,
+            force: Boolean,
+        ): ResolvedStream = throw UnsupportedOperationException("test")
+    }
+
+    private class FakeDownloadRepository : DownloadRepository {
+        private val rows = MutableStateFlow<List<DownloadItem>>(emptyList())
+        override fun observeAll(): Flow<List<DownloadItem>> = rows
+        override fun observe(videoId: String): Flow<DownloadItem?> =
+            kotlinx.coroutines.flow.flow { emit(rows.value.firstOrNull { it.videoId == videoId }) }
+        override suspend fun get(videoId: String): DownloadItem? =
+            rows.value.firstOrNull { it.videoId == videoId }
+        override suspend fun upsert(item: DownloadItem) {
+            rows.value = rows.value.filterNot { it.videoId == item.videoId } + item
+        }
+        override suspend fun delete(videoId: String) {
+            rows.value = rows.value.filterNot { it.videoId == videoId }
+        }
+        override suspend fun clear() { rows.value = emptyList() }
+        override suspend fun failActive(error: String) {
+            rows.value = rows.value.map {
+                if (it.state == DownloadState.QUEUED ||
+                    it.state == DownloadState.DOWNLOADING
+                ) {
+                    it.copy(state = DownloadState.FAILED, error = error)
+                } else it
+            }
+        }
+    }
 
     @Test
     fun `enqueue appends to the live player and rewrites durable queue as existing+new`() = runTest {

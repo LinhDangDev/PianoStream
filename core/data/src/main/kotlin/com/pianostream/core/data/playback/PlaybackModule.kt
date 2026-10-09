@@ -22,7 +22,11 @@ object PlaybackModule {
         Room.databaseBuilder(context, PlaybackDatabase::class.java, PlaybackDatabase.NAME)
             // No destructive fallback — deleteAllLocalData() is the only wipe
             // path (CC10); a schema mismatch surfaces loudly, never silent loss.
-            .addMigrations(PlaybackMigrations.MIGRATION_1_2, PlaybackMigrations.MIGRATION_2_3)
+            .addMigrations(
+                PlaybackMigrations.MIGRATION_1_2,
+                PlaybackMigrations.MIGRATION_2_3,
+                PlaybackMigrations.MIGRATION_3_4,
+            )
             .build()
 
     // The interface binding lives in the app flavor sets (stub fakes / real

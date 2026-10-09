@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,9 +50,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pianostream.core.data.downloads.DownloadItem
+import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.data.library.model.Disc
 import com.pianostream.core.designsystem.component.EmptyState
 import com.pianostream.core.data.playback.model.FavoriteItem
+import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.designsystem.component.SectionHeader
@@ -102,7 +106,7 @@ fun LibraryScreen(
     var actionsOpen by remember { mutableStateOf(false) }
     /** Track handed to the add-to-playlist sheet; null = sheet closed. */
     var addToPlaylistItem by remember { mutableStateOf<QueueItem?>(null) }
-    val tabs = listOf("Discs", "Tracks", "Composers", "Playlists", "Favorites")
+    val tabs = listOf("Discs", "Tracks", "Composers", "Playlists", "Favorites", "Downloads")
 
     // A single tap on a one-track disc emits a play request (CC1 — the
     // queue still builds from the selected disc's tracks).
@@ -310,6 +314,12 @@ fun LibraryScreen(
                     state,
                     onPlayQueue,
                     onAddToPlaylist = { addToPlaylistItem = it.toQueueItem() },
+                )
+                5 -> DownloadsTab(
+                    state,
+                    onPlayQueue,
+                    onRemove = viewModel::removeDownload,
+                    onRetry = viewModel::retryDownload,
                 )
             }
         }
@@ -1123,6 +1133,141 @@ private fun FavoritesTab(
         }
     }
 }
+
+/**
+ * Downloads — offline YouTube audio rows: artwork, title, artist + size.
+ * Tap plays through the normal queue path (the data-source stack serves
+ * `filesDir/downloads/<videoId>.bin` with zero network); ⋯ → Delete.
+ */
+@Composable
+private fun DownloadsTab(
+    state: LibraryViewModel.UiState,
+    onPlayQueue: (List<QueueItem>, Int) -> Unit,
+    onRemove: (String) -> Unit,
+    onRetry: (String) -> Unit,
+) {
+    if (state.downloads.isEmpty()) {
+        EmptyState(
+            title = "No downloads",
+            body = "Download YouTube tracks from search to play them offline.",
+        )
+        return
+    }
+    val query = state.libraryQuery
+    val visible = remember(state.downloads, query) {
+        state.downloads.filter { it.matchesLibraryQuery(query) }
+    }
+    if (query.isNotBlank() && visible.isEmpty()) {
+        EmptyState("Nothing found in library", "No matches for \"$query\".")
+        return
+    }
+    LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
+        items(visible, key = { it.videoId }) { d ->
+            var menuOpen by remember { mutableStateOf(false) }
+            TrackRow(
+                title = d.title,
+                subtitle = downloadSubtitle(d),
+                artworkUri = d.artworkUri,
+                durationMs = null,
+                onClick = {
+                    when (d.state) {
+                        DownloadState.DONE ->
+                            onPlayQueue(listOf(d.toQueueItem()), 0)
+                        DownloadState.FAILED -> onRetry(d.videoId)
+                        else -> Unit
+                    }
+                },
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        when (d.state) {
+                            DownloadState.QUEUED -> CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = Vinyl.Gold,
+                            )
+                            DownloadState.DOWNLOADING -> {
+                                val fraction = d.progressFraction
+                                if (fraction != null) {
+                                    CircularProgressIndicator(
+                                        progress = { fraction },
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Vinyl.Gold,
+                                        trackColor = Aurora.Hairline,
+                                    )
+                                } else {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Vinyl.Gold,
+                                    )
+                                }
+                            }
+                            else -> {}
+                        }
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = "Download options",
+                                    tint = Aurora.TextSecondary,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = menuOpen,
+                                onDismissRequest = { menuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete download") },
+                                    onClick = {
+                                        menuOpen = false
+                                        onRemove(d.videoId)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
+            )
+        }
+    }
+}
+
+private fun downloadSubtitle(d: DownloadItem): String {
+    val artist = d.artist?.takeIf { it.isNotBlank() }
+    return when (d.state) {
+        DownloadState.DONE ->
+            listOfNotNull(artist, formatBytes(d.bytesDownloaded)).joinToString(" · ")
+        DownloadState.DOWNLOADING ->
+            d.progressFraction?.let { "Downloading ${(it * 100).toInt()}%" }
+                ?: "Downloading…"
+        DownloadState.QUEUED -> "Queued"
+        DownloadState.FAILED -> "Download failed — tap to retry"
+    }
+}
+
+/** Byte count → display string ("412 KB", "3.2 MB", "1.1 GB"). */
+internal fun formatBytes(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> "%.1f GB".format(bytes.toDouble() / (1L shl 30))
+    bytes >= 1L shl 20 -> "%.1f MB".format(bytes.toDouble() / (1L shl 20))
+    bytes >= 1L shl 10 -> "%.0f KB".format(bytes.toDouble() / (1L shl 10))
+    else -> "$bytes B"
+}
+
+internal fun DownloadItem.matchesLibraryQuery(query: String): Boolean =
+    title.containsQuery(query) || artist.containsQuery(query)
+
+/** Downloaded row → single-entry queue (same stream mediaId it plays as). */
+private fun DownloadItem.toQueueItem(): QueueItem = QueueItem(
+    position = 0,
+    mediaId = mediaId,
+    title = title,
+    artist = artist,
+    artworkUri = artworkUri,
+    source = MediaSource.YOUTUBE,
+    durationMs = null,
+    addedAt = System.currentTimeMillis(),
+)
 
 // --- "find in library" filtering -------------------------------------------
 

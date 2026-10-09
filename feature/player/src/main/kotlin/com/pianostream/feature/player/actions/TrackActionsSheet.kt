@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.component.VinylDisc
 import com.pianostream.core.designsystem.theme.Aurora
@@ -54,6 +55,9 @@ fun TrackActionsSheet(
     enabled: Set<TrackAction>,
     onAction: (TrackAction) -> Unit,
     onDismiss: () -> Unit,
+    /** Download row state (null = the row reads "Download"); enabled only
+     *  by hosts wired to the download manager. */
+    downloadState: DownloadState? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -110,6 +114,7 @@ fun TrackActionsSheet(
                 ActionRow(
                     action = action,
                     isFavorite = isFavorite,
+                    downloadState = downloadState,
                     onClick = {
                         onAction(action)
                         onDismiss()
@@ -164,12 +169,16 @@ private fun ActionRow(
 private fun ActionRow(
     action: TrackAction,
     isFavorite: Boolean,
+    downloadState: DownloadState?,
     onClick: () -> Unit,
 ) {
     ActionRow(
-        icon = action.icon(isFavorite),
-        label = action.label(isFavorite),
-        iconTint = if (action == TrackAction.ToggleFavorite && isFavorite) {
+        icon = action.icon(isFavorite, downloadState),
+        label = action.label(isFavorite, downloadState),
+        iconTint = if (
+            (action == TrackAction.ToggleFavorite && isFavorite) ||
+            (action == TrackAction.Download && downloadState == DownloadState.DONE)
+        ) {
             Vinyl.Gold
         } else {
             Vinyl.GoldDim

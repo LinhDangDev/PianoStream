@@ -12,7 +12,9 @@ import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.data.settings.SettingsDataStore.ThemeMode
 import com.pianostream.core.media.api.PlaybackController
+import com.pianostream.core.media.downloads.DownloadManager
 import com.pianostream.core.media.queue.QueueAssembler
+import com.pianostream.core.data.uri.PianoStreamUri
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +44,7 @@ public class AppViewModel @Inject constructor(
     private val assembler: QueueAssembler,
     private val libraryRepository: LibraryRepository,
     settings: SettingsDataStore,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
 
     private val _player = MutableStateFlow<Player?>(null)
@@ -125,6 +128,36 @@ public class AppViewModel @Inject constructor(
                     ),
                 )
             }
+        }
+    }
+
+    /** videoId → download record — feeds row icon/sheet states app-wide. */
+    public val downloads = downloadManager.downloads
+
+    /** Enqueue a YouTube item for offline download (search ⋯ / player ⋯). */
+    public fun enqueueDownload(videoId: String, title: String, artist: String?, artworkUri: String?) {
+        downloadManager.enqueue(videoId, title, artist, artworkUri)
+    }
+
+    /** Removes a download — file + row; cancels when still in flight. */
+    public fun removeDownload(videoId: String) {
+        viewModelScope.launch { downloadManager.remove(videoId) }
+    }
+
+    /** Player ⋯ "Download" — toggles the CURRENT item's download. */
+    public fun toggleCurrentDownload() {
+        val item = currentQueueItem() ?: return
+        val videoId = when (val id = PianoStreamUri.parse(item.mediaId)) {
+            is PianoStreamUri.Id.Stream -> id.videoId
+            is PianoStreamUri.Id.Video -> id.videoId
+            else -> null
+        } ?: return
+        when (downloads.value[videoId]?.state) {
+            com.pianostream.core.data.downloads.DownloadState.DONE,
+            com.pianostream.core.data.downloads.DownloadState.QUEUED,
+            com.pianostream.core.data.downloads.DownloadState.DOWNLOADING,
+            -> removeDownload(videoId)
+            else -> enqueueDownload(videoId, item.title, item.artist, item.artworkUri)
         }
     }
 

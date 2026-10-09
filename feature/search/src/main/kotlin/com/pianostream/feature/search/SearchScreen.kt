@@ -1,8 +1,11 @@
 package com.pianostream.feature.search
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,13 +19,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -41,6 +48,8 @@ import android.widget.Toast
 import kotlinx.coroutines.launch
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pianostream.core.data.downloads.DownloadItem
+import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.data.library.model.SearchHit
 import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.QueueItem
@@ -437,6 +446,20 @@ fun SearchScreen(
                                                         )
                                                     },
                                             )
+                                            item.videoId?.let { vid ->
+                                                DownloadAffordance(
+                                                    download = state.downloads[vid],
+                                                    onStart = {
+                                                        viewModel.enqueueDownload(
+                                                            vid, item.title, item.subtitle, item.artworkUri,
+                                                        )
+                                                    },
+                                                    onRemove = { viewModel.removeDownload(vid) },
+                                                    onPlayDone = {
+                                                        onPlayQueue(listOf(item.toQueueItem(vid)), 0)
+                                                    },
+                                                )
+                                            }
                                         }
                                         if (onActions != null) {
                                             Icon(
@@ -477,6 +500,86 @@ fun SearchScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Download icon affordance on a YouTube row — the Spotify/YouTube Music
+ * state machine: arrow-down → progress ring → filled check. Tap when done
+ * plays the track; long-press removes the download in any state.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DownloadAffordance(
+    download: DownloadItem?,
+    onStart: () -> Unit,
+    onRemove: () -> Unit,
+    onPlayDone: () -> Unit,
+) {
+    val onClick = when (download?.state) {
+        null, DownloadState.FAILED -> onStart
+        DownloadState.QUEUED, DownloadState.DOWNLOADING -> onRemove
+        DownloadState.DONE -> onPlayDone
+    }
+    val description = when (download?.state) {
+        null -> "Download"
+        DownloadState.QUEUED -> "Queued — tap to cancel, long-press to remove"
+        DownloadState.DOWNLOADING -> "Downloading — tap to cancel, long-press to remove"
+        DownloadState.DONE -> "Downloaded — tap to play, long-press to remove"
+        DownloadState.FAILED -> "Download failed — tap to retry, long-press to remove"
+    }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(22.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (download != null) onRemove else null,
+            ),
+    ) {
+        when (download?.state) {
+            DownloadState.QUEUED -> CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = Vinyl.Gold,
+            )
+            DownloadState.DOWNLOADING -> {
+                val fraction = download.progressFraction
+                if (fraction != null) {
+                    CircularProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = Vinyl.Gold,
+                        trackColor = Aurora.Hairline,
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = Vinyl.Gold,
+                    )
+                }
+            }
+            DownloadState.DONE -> Icon(
+                imageVector = Icons.Filled.DownloadDone,
+                contentDescription = description,
+                tint = Vinyl.Gold,
+                modifier = Modifier.size(22.dp),
+            )
+            DownloadState.FAILED -> Icon(
+                imageVector = Icons.Filled.Refresh,
+                contentDescription = description,
+                tint = Vinyl.Gold,
+                modifier = Modifier.size(22.dp),
+            )
+            null -> Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = description,
+                tint = Vinyl.GoldDim,
+                modifier = Modifier.size(22.dp),
+            )
         }
     }
 }

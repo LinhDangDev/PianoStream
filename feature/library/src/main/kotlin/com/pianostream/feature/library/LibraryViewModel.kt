@@ -2,6 +2,7 @@ package com.pianostream.feature.library
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pianostream.core.data.downloads.DownloadItem
 import com.pianostream.core.data.library.LibraryRepository
 import com.pianostream.core.data.library.model.Disc
 import com.pianostream.core.data.library.model.ScanProgress
@@ -15,6 +16,7 @@ import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.settings.LibraryPrefsStore
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.local.scan.LibraryHasher
+import com.pianostream.core.media.downloads.DownloadManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
@@ -44,6 +46,7 @@ class LibraryViewModel @Inject constructor(
     private val playbackRepository: PlaybackRepository,
     private val settings: SettingsDataStore,
     private val libraryPrefs: LibraryPrefsStore,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
 
     data class ScanSummary(
@@ -74,6 +77,8 @@ class LibraryViewModel @Inject constructor(
         val grantError: String? = null,
         /** "Search library" field — live-filters the visible tab's rows. */
         val libraryQuery: String = "",
+        /** Offline downloads, newest first — the Downloads tab's rows. */
+        val downloads: List<DownloadItem> = emptyList(),
         val discsSort: LibraryPrefsStore.DiscsSort = LibraryPrefsStore.DiscsSort.RECENT,
         val discsView: LibraryPrefsStore.DiscsView = LibraryPrefsStore.DiscsView.LIST,
     )
@@ -132,6 +137,15 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             libraryPrefs.discsView.collect { view ->
                 _state.update { it.copy(discsView = view) }
+            }
+        }
+        viewModelScope.launch {
+            downloadManager.downloads.collect { map ->
+                _state.update {
+                    it.copy(
+                        downloads = map.values.sortedByDescending(DownloadItem::createdAt),
+                    )
+                }
             }
         }
     }
@@ -416,6 +430,18 @@ class LibraryViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    // --- downloads ------------------------------------------------------
+
+    /** Row ⋯ → "Delete download" (also cancels an in-flight one). */
+    fun removeDownload(videoId: String) {
+        viewModelScope.launch { downloadManager.remove(videoId) }
+    }
+
+    /** Retries a FAILED download through the stored row's metadata. */
+    fun retryDownload(videoId: String) {
+        viewModelScope.launch { downloadManager.retry(videoId) }
     }
 
     fun dismissShrink() {

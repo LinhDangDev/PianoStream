@@ -216,6 +216,34 @@ public fun SettingsScreen(
             },
         )
     }
+
+    if (state.confirmClearDownloads) {
+        AlertDialog(
+            onDismissRequest = viewModel::cancelClearDownloads,
+            containerColor = Vinyl.BgTop,
+            title = { Text("Clear all downloads?") },
+            text = {
+                Text(
+                    "Removes ${state.downloadCount} downloaded tracks " +
+                        "(${formatBytes(state.downloadBytes)}) from this " +
+                        "device. Streamed playback is unaffected.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = viewModel::confirmClearDownloads,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Vinyl.Gold),
+                ) {
+                    Text("Clear all")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelClearDownloads) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 }
 
 /** Launches the OS audio-effects panel, or shows a toast when none exists. */
@@ -227,6 +255,14 @@ private fun android.content.Context.equalizerOpener(): () -> Unit = {
     } catch (e: Exception) {
         Toast.makeText(this, "No equalizer found", Toast.LENGTH_SHORT).show()
     }
+}
+
+/** Byte count → display string ("412 KB", "3.2 MB", "1.1 GB"). */
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> "%.1f GB".format(bytes.toDouble() / (1L shl 30))
+    bytes >= 1L shl 20 -> "%.1f MB".format(bytes.toDouble() / (1L shl 20))
+    bytes >= 1L shl 10 -> "%.0f KB".format(bytes.toDouble() / (1L shl 10))
+    else -> "$bytes B"
 }
 
 /** Display labels for the persisted `audioItagTier` values. */
@@ -426,6 +462,23 @@ private fun buildSections(
                 ActionRow(title = "Clear stream cache", onClick = {
                     viewModel.clearStreamCache(); onClearStreamCache()
                 })
+            },
+            SettingRow("Downloads") {
+                ActionRow(
+                    title = "Downloads",
+                    subtitle = "${state.downloadCount} items · " +
+                        formatBytes(state.downloadBytes),
+                    onClick = {},
+                    enabled = false,
+                )
+            },
+            SettingRow("Clear all downloads") {
+                ActionRow(
+                    title = "Clear all downloads",
+                    subtitle = "Deletes every downloaded file",
+                    onClick = viewModel::requestClearDownloads,
+                    enabled = state.downloadCount > 0,
+                )
             },
         ),
     ),

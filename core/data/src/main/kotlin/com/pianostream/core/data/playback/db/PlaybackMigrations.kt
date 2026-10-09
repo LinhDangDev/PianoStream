@@ -60,4 +60,31 @@ object PlaybackMigrations {
             db.execSQL("ALTER TABLE `playlist_items` ADD COLUMN `durationMs` INTEGER")
         }
     }
+
+    /**
+     * v3 → v4: offline downloads (`downloads`) — one row per downloaded
+     * `pianostream://stream/<videoId>`, keyed by `videoId`. Display columns
+     * are denormalized per CC6; `state` holds QUEUED / DOWNLOADING / DONE /
+     * FAILED, `filePath` the finished `filesDir/downloads/<videoId>.bin`.
+     */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `downloads` (" +
+                    "`videoId` TEXT NOT NULL, " +
+                    "`title` TEXT NOT NULL, " +
+                    "`artist` TEXT, " +
+                    "`artworkUri` TEXT, " +
+                    "`filePath` TEXT, " +
+                    "`bytesDownloaded` INTEGER NOT NULL, " +
+                    "`bytesTotal` INTEGER NOT NULL, " +
+                    "`state` TEXT NOT NULL, " +
+                    "`error` TEXT, " +
+                    "`createdAt` INTEGER NOT NULL, " +
+                    "`updatedAt` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`videoId`)" +
+                    ")",
+            )
+        }
+    }
 }

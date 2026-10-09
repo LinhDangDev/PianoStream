@@ -13,12 +13,20 @@ import com.pianostream.core.data.playback.model.PlayHistoryItem
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import com.pianostream.core.data.settings.SettingsDataStore
+import com.pianostream.core.data.downloads.DownloadItem
+import com.pianostream.core.data.downloads.DownloadRepository
+import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.data.settings.SettingsDataStore.ReplayGainMode
 import com.pianostream.core.data.settings.SettingsDataStore.TaskRemovalPolicy
 import com.pianostream.core.data.settings.SettingsDataStore.ThemeMode
+import com.pianostream.core.media.downloads.DownloadManager
+import com.pianostream.core.youtube.api.ResolvedStream
+import com.pianostream.core.youtube.api.StreamResolver
 import com.pianostream.core.youtube.di.YouTubeLocalWipe
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
@@ -88,7 +96,47 @@ class SettingsViewModelTest {
         wiper = LocalDataWiper(ctx, playback, library, settings, ytWipe)
     }
 
-    private fun vm() = SettingsViewModel(settings, playback, wiper)
+    private fun vm() = SettingsViewModel(settings, playback, wiper, downloadManager())
+
+    private fun downloadManager() = DownloadManager(
+        context = RuntimeEnvironment.getApplication(),
+        resolver = NeverResolve(),
+        okHttp = okhttp3.OkHttpClient(),
+        repository = FakeDownloadRepository(),
+    )
+
+    private class NeverResolve : StreamResolver {
+        override suspend fun resolve(
+            videoId: String,
+            preferredItag: Int,
+            force: Boolean,
+        ): ResolvedStream = throw UnsupportedOperationException("test")
+    }
+
+    private class FakeDownloadRepository : DownloadRepository {
+        private val rows = MutableStateFlow<List<DownloadItem>>(emptyList())
+        override fun observeAll(): Flow<List<DownloadItem>> = rows
+        override fun observe(videoId: String): Flow<DownloadItem?> =
+            flow { emit(rows.value.firstOrNull { it.videoId == videoId }) }
+        override suspend fun get(videoId: String): DownloadItem? =
+            rows.value.firstOrNull { it.videoId == videoId }
+        override suspend fun upsert(item: DownloadItem) {
+            rows.value = rows.value.filterNot { it.videoId == item.videoId } + item
+        }
+        override suspend fun delete(videoId: String) {
+            rows.value = rows.value.filterNot { it.videoId == videoId }
+        }
+        override suspend fun clear() { rows.value = emptyList() }
+        override suspend fun failActive(error: String) {
+            rows.value = rows.value.map {
+                if (it.state == DownloadState.QUEUED ||
+                    it.state == DownloadState.DOWNLOADING
+                ) {
+                    it.copy(state = DownloadState.FAILED, error = error)
+                } else it
+            }
+        }
+    }
 
     /**
      * Poll until [cond]. VM work posts to the main looper (paused under

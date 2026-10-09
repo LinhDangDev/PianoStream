@@ -1,5 +1,7 @@
 package com.pianostream.app.di
 
+import com.pianostream.core.data.downloads.DownloadRepository
+import com.pianostream.core.data.downloads.DownloadRepositoryImpl
 import com.pianostream.core.data.library.LibraryRepository
 import com.pianostream.core.data.library.LibraryRepositoryImpl
 import com.pianostream.core.data.playback.PlaybackRepository
@@ -39,4 +41,12 @@ public abstract class RealBindings {
     public abstract fun playbackController(
         impl: PlaybackControllerImpl,
     ): PlaybackController
+
+    // The real Room impl serves both flavors — it needs only the playback
+    // DB and the filesystem, so the stub flavor fakes nothing here.
+    @Binds
+    @Singleton
+    public abstract fun downloadRepository(
+        impl: DownloadRepositoryImpl,
+    ): DownloadRepository
 }
