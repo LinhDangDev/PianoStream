@@ -150,13 +150,19 @@ class HomeViewModelTest {
     fun `home surfaces history discs composers and youtube shelves`() = runTest {
         playback.history.value = (1..12).map {
             PlayHistoryItem(mediaId = "m$it", title = "T$it", artist = null, artworkUri = null, source = MediaSource.LOCAL, playedAt = it * 1000L, playedMs = 60_000L)
-        }
+        } + PlayHistoryItem(
+            // A repeat play of an older mediaId — must not produce a
+            // second card in the rail.
+            mediaId = "m3", title = "T3 again", artist = null, artworkUri = null,
+            source = MediaSource.LOCAL, playedAt = 500L, playedMs = 60_000L,
+        )
         val vm = HomeViewModel(playback, library, youtube, settings)
         // Composers+history arrive via DataStore-backed combine; YouTube
         // via the VM's own init launch.
         awaitState(vm) { it.youtubeSections.isNotEmpty() && it.composers.isNotEmpty() }
-        // recentlyPlayed capped at 10.
-        assertThat(vm.state.value.recentlyPlayed).hasSize(10)
+        // recentItems: deduped by mediaId, capped at 10.
+        assertThat(vm.state.value.recentItems).hasSize(10)
+        assertThat(vm.state.value.recentItems.map { it.mediaId }).containsNoDuplicates()
         assertThat(vm.state.value.composers).containsExactly("Bach", "Chopin")
         assertThat(vm.state.value.youtubeSections.first().title)
             .isEqualTo("Listen again")

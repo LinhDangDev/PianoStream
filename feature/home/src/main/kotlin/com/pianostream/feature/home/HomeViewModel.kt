@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.pianostream.core.data.library.LibraryRepository
 import com.pianostream.core.data.library.model.Disc
 import com.pianostream.core.data.playback.PlaybackRepository
-import com.pianostream.core.data.playback.model.PlayHistoryItem
+import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.youtube.api.YouTubeClient
 import com.pianostream.core.youtube.api.YouTubeSection
@@ -33,8 +33,17 @@ class HomeViewModel @Inject constructor(
     private val settings: SettingsDataStore,
 ) : ViewModel() {
 
+    /** One deduped history entry (newest play wins) — the rail/hero model. */
+    data class RecentItem(
+        val mediaId: String,
+        val title: String,
+        val artist: String?,
+        val artworkUri: String?,
+        val source: MediaSource,
+    )
+
     data class UiState(
-        val recentlyPlayed: List<PlayHistoryItem> = emptyList(),
+        val recentItems: List<RecentItem> = emptyList(),
         val discs: List<Disc> = emptyList(),
         val composers: List<String> = emptyList(),
         val youtubeSections: List<YouTubeSection> = emptyList(),
@@ -54,7 +63,20 @@ class HomeViewModel @Inject constructor(
         settings.localOnlySearch,
     ) { history, discs, comp, yt, localOnly ->
         UiState(
-            recentlyPlayed = history.take(10),
+            // History is newest-first and repeats a mediaId per play —
+            // dedupe on it (first occurrence = latest play) and cap the rail.
+            recentItems = history
+                .distinctBy { it.mediaId }
+                .take(10)
+                .map {
+                    RecentItem(
+                        mediaId = it.mediaId,
+                        title = it.title,
+                        artist = it.artist,
+                        artworkUri = it.artworkUri,
+                        source = it.source,
+                    )
+                },
             discs = discs,
             composers = comp,
             youtubeSections = if (localOnly) emptyList() else yt,
