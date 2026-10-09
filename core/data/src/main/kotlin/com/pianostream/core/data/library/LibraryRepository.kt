@@ -1,11 +1,13 @@
 package com.pianostream.core.data.library
 
+import com.pianostream.core.data.library.model.ArtistTrack
 import com.pianostream.core.data.library.model.Disc
 import com.pianostream.core.data.library.model.ScanProgress
 import com.pianostream.core.data.library.model.ScanResult
 import com.pianostream.core.data.library.model.SearchHit
 import com.pianostream.core.data.library.model.Track
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * `library.db` owner (Interface Freeze; Phase 3 implements
@@ -39,6 +41,22 @@ public interface LibraryRepository {
 
     /** Distinct disc composers (CC7 aggregate). */
     public suspend fun distinctComposers(): List<String>
+
+    /**
+     * Discs credited to [artist] (disc `performer` tag) or holding tracks
+     * performed/composed by them — the artist page's "Discs" section.
+     * The empty default keeps frozen stub/test fakes compiling.
+     */
+    public fun observeArtistDiscs(artist: String): Flow<List<Disc>> = flowOf(emptyList())
+
+    /**
+     * Tracks whose effective artist is [artist]: track `performer`, else the
+     * disc's `performer` (cue tag inheritance), else the track's `composer`
+     * — plus explicit composer matches (Composers-tab taps share this
+     * route). Rows carry disc context + the cue ordinal for
+     * `LibraryHasher.mediaId` (CC2). Empty default as above.
+     */
+    public fun observeArtistTracks(artist: String): Flow<List<ArtistTrack>> = flowOf(emptyList())
 
     /** Emits `ScanProgress` while a scan runs; idle otherwise. */
     public val scanProgress: Flow<ScanProgress>

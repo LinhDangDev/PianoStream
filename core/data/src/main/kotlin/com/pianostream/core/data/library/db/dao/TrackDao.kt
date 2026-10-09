@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import com.pianostream.core.data.library.db.ArtistTrackRow
 import com.pianostream.core.data.library.db.entity.TrackEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -41,4 +42,25 @@ interface TrackDao {
             "ORDER BY composer",
     )
     suspend fun distinctComposers(): List<String>
+
+    /**
+     * Tracks credited to [artist] for the artist page: the track's own
+     * PERFORMER when present, else the parent disc's PERFORMER (cue sheets
+     * inherit the album tag), else the track's SONGWRITER — plus explicit
+     * `composer` matches so taps from the Composers tab land on a populated
+     * page. Rows join the disc's title/folderPath/artworkUri; `indexInCue`
+     * is the 0-based cue ordinal (position inside the disc's `ORDER BY
+     * trackNo` list — `UNIQUE(discId, trackNo)` makes the count exact).
+     */
+    @Query(
+        "SELECT t.*, d.folderPath AS discFolderPath, d.title AS discTitle, " +
+            "d.artworkUri AS discArtworkUri, " +
+            "(SELECT COUNT(*) FROM tracks t2 WHERE t2.discId = t.discId " +
+            "AND t2.trackNo < t.trackNo) AS indexInCue " +
+            "FROM tracks t INNER JOIN discs d ON t.discId = d.id " +
+            "WHERE COALESCE(NULLIF(t.performer, ''), d.performer, t.composer) = :artist " +
+            "OR t.composer = :artist " +
+            "ORDER BY d.folderPath, t.trackNo",
+    )
+    fun observeArtistTracks(artist: String): Flow<List<ArtistTrackRow>>
 }

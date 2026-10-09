@@ -6,6 +6,7 @@ import androidx.room.withTransaction
 import com.pianostream.core.data.library.db.LibraryDatabase
 import com.pianostream.core.data.library.db.entity.DiscEntity
 import com.pianostream.core.data.library.db.entity.TrackEntity
+import com.pianostream.core.data.library.model.ArtistTrack
 import com.pianostream.core.data.library.model.Disc
 import com.pianostream.core.data.library.model.ScanProgress
 import com.pianostream.core.data.library.model.ScanResult
@@ -61,6 +62,24 @@ class LibraryRepositoryImpl @Inject constructor(
 
     override suspend fun distinctComposers(): List<String> =
         db.trackDao().distinctComposers()
+
+    override fun observeArtistDiscs(artist: String): Flow<List<Disc>> =
+        db.discDao().observeArtistDiscs(artist)
+            .map { list -> list.map { it.toModel() } }
+
+    override fun observeArtistTracks(artist: String): Flow<List<ArtistTrack>> =
+        db.trackDao().observeArtistTracks(artist)
+            .map { list ->
+                list.map { row ->
+                    ArtistTrack(
+                        track = row.track.toModel(),
+                        discTitle = row.discTitle,
+                        discFolderPath = row.discFolderPath,
+                        discArtworkUri = row.discArtworkUri,
+                        indexInCue = row.indexInCue,
+                    )
+                }
+            }
 
     override val scanProgress: Flow<ScanProgress> = _scanProgress
 
