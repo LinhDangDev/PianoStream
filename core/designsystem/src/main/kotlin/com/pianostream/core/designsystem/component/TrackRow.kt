@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.pianostream.core.designsystem.art.ArtworkUrls
@@ -44,6 +46,9 @@ fun TrackRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isCurrent: Boolean = false,
+    isPlaying: Boolean = false,
+    isPaused: Boolean = false,
+    explicit: Boolean = false,
     artworkShape: Shape = RoundedCornerShape(10.dp),
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -83,16 +88,39 @@ fun TrackRow(
                     artworkContentDescription = null,
                 )
             }
+            if (isPlaying || isPaused) {
+                // Scrim keeps the bars legible over bright artwork.
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Aurora.Bg.copy(alpha = 0.45f))
+                )
+                EqualizerBars(
+                    animate = isPlaying && !isPaused,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .height(20.dp),
+                )
+            }
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isCurrent) Aurora.Accent else Aurora.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isCurrent) Aurora.Accent else Aurora.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (explicit) {
+                    ExplicitBadge()
+                }
+            }
             if (subtitle != null) {
                 Text(
                     subtitle,
@@ -114,6 +142,26 @@ fun TrackRow(
             Spacer(Modifier.width(4.dp))
             trailing()
         }
+    }
+}
+
+/** Small rounded "E" badge — Spotify-style explicit marker next to the title. */
+@Composable
+private fun ExplicitBadge() {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(3.dp))
+            .background(Aurora.SurfaceLight)
+            .semantics { contentDescription = "Explicit" }
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+    ) {
+        Text(
+            "E",
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = Aurora.TextSecondary,
+        )
     }
 }
 
