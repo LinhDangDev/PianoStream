@@ -118,10 +118,18 @@ class SettingsViewModelTest {
         vm.setSendSearchSuggestions(true)
         vm.setCacheBudgetBytes(2L shl 30)
         vm.setUpdaterEnabled(true)
+        vm.setAudioItagTier("HIGH")
+        vm.setMonoAudio(true)
+        vm.setGapless(false)
+        vm.setNormalizeVolume(true)
         await {
             settings.preferredItag.first() == 140 &&
                 settings.updaterEnabled.first() &&
-                settings.cacheBudgetBytes.first() == (2L shl 30)
+                settings.cacheBudgetBytes.first() == (2L shl 30) &&
+                settings.audioItagTier.first() == "HIGH" &&
+                settings.monoAudio.first() &&
+                !settings.gapless.first() &&
+                settings.normalizeVolume.first()
         }
         assertThat(settings.themeMode.first()).isEqualTo(ThemeMode.DARK)
         assertThat(settings.dynamicColor.first()).isFalse()
@@ -131,6 +139,30 @@ class SettingsViewModelTest {
         assertThat(settings.taskRemovalPolicy.first()).isEqualTo(TaskRemovalPolicy.PAUSE)
         assertThat(settings.localOnlySearch.first()).isTrue()
         assertThat(settings.sendSearchSuggestions.first()).isTrue()
+        assertThat(settings.audioItagTier.first()).isEqualTo("HIGH")
+        assertThat(settings.monoAudio.first()).isTrue()
+        assertThat(settings.gapless.first()).isFalse()
+        assertThat(settings.normalizeVolume.first()).isTrue()
+    }
+
+    @Test
+    fun `settings search query is transient vm state`() = runTest {
+        val vm = vm()
+        assertThat(vm.state.value.searchQuery).isEmpty()
+        vm.setSearchQuery("mono")
+        await { vm.state.value.searchQuery == "mono" }
+        assertThat(vm.state.value.searchQuery).isEqualTo("mono")
+        // Transient only — the store holds no searchQuery flow to assert on.
+    }
+
+    @Test
+    fun `playback toggles default to mono off, gapless on, normalize off`() = runTest {
+        val vm = vm()
+        await { vm.state.value.gapless }
+        assertThat(vm.state.value.audioItagTier).isEqualTo("AUTO")
+        assertThat(vm.state.value.monoAudio).isFalse()
+        assertThat(vm.state.value.gapless).isTrue()
+        assertThat(vm.state.value.normalizeVolume).isFalse()
     }
 
     @Test
