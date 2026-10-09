@@ -7,6 +7,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.data.util.Redact
+import com.pianostream.core.youtube.api.AudioStreamResolver
 import com.pianostream.core.youtube.api.ExtractionException
 import com.pianostream.core.youtube.api.StreamResolver
 import java.io.IOException
@@ -18,7 +19,8 @@ import kotlinx.coroutines.runBlocking
  *
  *  - `pianostream://stream/<videoId>` → [StreamResolver.resolve] → fresh
  *    `googlevideo` URL + headers, substituted into the spec before opening
- *    the real upstream.
+ *    the real upstream. The requested audio itag comes from
+ *    [audioItagProvider] (`null` = auto — the canonical order).
  *  - `pianostream://video/<videoId>` → [StreamResolver.resolveVideo] → fresh
  *    adaptive video-only URL (the itag comes from [videoItagProvider] —
  *    `null` = auto) — identical substitution, 403-retry and redaction rules.
@@ -46,6 +48,9 @@ class StreamResolvingDataSource(
     /** Video-quality tier itag for `video/` resolves; `null` = auto. Read
      *  per open so a mid-playback quality switch applies on the next source. */
     private val videoItagProvider: () -> Int? = { null },
+    /** Audio-quality tier itag for `stream/` resolves; `null` = auto. Read
+     *  per open so a mid-playback quality switch applies on the next source. */
+    private val audioItagProvider: () -> Int? = { null },
 ) : DataSource {
 
     private var openedUpstreamUri: android.net.Uri? = null
@@ -57,6 +62,7 @@ class StreamResolvingDataSource(
         private val preferredItag: Int = 251,
         private val localResolver: suspend (String) -> String?,
         private val videoItagProvider: () -> Int? = { null },
+        private val audioItagProvider: () -> Int? = { null },
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
             StreamResolvingDataSource(
@@ -65,6 +71,7 @@ class StreamResolvingDataSource(
                 preferredItag,
                 localResolver,
                 videoItagProvider,
+                audioItagProvider,
             )
     }
 
@@ -112,7 +119,13 @@ class StreamResolvingDataSource(
                     force,
                 )
             } else {
-                resolver.resolve(videoId, preferredItag, force)
+                val audioItag = audioItagProvider()
+                val r = resolver
+                if (r is AudioStreamResolver) {
+                    r.resolveAudio(videoId, audioItag, force)
+                } else {
+                    r.resolve(videoId, audioItag ?: preferredItag, force)
+                }
             }
         }
     } catch (e: ExtractionException) {
