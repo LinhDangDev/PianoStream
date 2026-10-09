@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -55,17 +58,24 @@ import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PlaylistAdd
-import androidx.compose.material.icons.outlined.RemoveCircleOutline
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import com.pianostream.core.data.library.model.Track
+import com.pianostream.core.data.settings.LibraryPrefsStore
+import com.pianostream.core.designsystem.component.DiscCard
 import com.pianostream.core.designsystem.component.SINGLE_LABEL_RATIO
 import com.pianostream.core.designsystem.component.SingleBadge
 import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.component.VinylDisc
 import com.pianostream.core.designsystem.theme.Aurora
+import java.util.Locale
 
 /**
  * Library — tabs Discs / Tracks / Composers / Playlists / Favorites (C5),
@@ -76,6 +86,11 @@ fun LibraryScreen(
     /** Play a queue: rows + start position (C6 — app layer owns the player). */
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** Composers-tab row tap → artist page (wired by the app nav layer). */
+    onOpenArtist: (String) -> Unit = {},
+    /** Track-row ⋯ in the Tracks tab, shown only when provided (app nav wires
+     *  it to the TrackActionsSheet). */
+    onTrackActions: ((Track) -> Unit)? = null,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -167,6 +182,45 @@ fun LibraryScreen(
                 ) { Text("Pick library folder") }
             }
         } else {
+            // "Find in library" — pinned above the tabs, live-filters the
+            // visible tab's rows (empty query = unfiltered).
+            OutlinedTextField(
+                value = state.libraryQuery,
+                onValueChange = viewModel::setLibraryQuery,
+                singleLine = true,
+                placeholder = { Text("Search library", color = Aurora.TextSecondary) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = Aurora.TextSecondary,
+                    )
+                },
+                trailingIcon = {
+                    if (state.libraryQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setLibraryQuery("") }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "Clear search",
+                                tint = Aurora.TextSecondary,
+                            )
+                        }
+                    }
+                },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Aurora.TextPrimary,
+                    unfocusedTextColor = Aurora.TextPrimary,
+                    cursorColor = Vinyl.Gold,
+                    focusedBorderColor = Vinyl.Gold,
+                    unfocusedBorderColor = Aurora.Hairline,
+                    focusedContainerColor = Aurora.Surface,
+                    unfocusedContainerColor = Aurora.Surface,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+            )
             // E2 — the "N new / M removed" completion summary + scan warnings
             // (e.g. "0 discs found — refusing to wipe") must be visible; the
             // VM computed them but nothing rendered them.
@@ -221,6 +275,8 @@ fun LibraryScreen(
                         // play request above and lands here already playing.
                         tab = 1
                     },
+                    onSetSort = viewModel::setDiscsSort,
+                    onToggleView = viewModel::toggleDiscsView,
                 )
                 1 -> TracksTab(
                     state,
@@ -232,15 +288,18 @@ fun LibraryScreen(
                     onAddToPlaylist = { idx ->
                         viewModel.trackQueueItem(idx)?.let { addToPlaylistItem = it }
                     },
+                    onTrackActions = onTrackActions,
                 )
-                2 -> ComposersTab(state)
+                2 -> ComposersTab(state, onOpenArtist)
                 3 -> PlaylistsTab(
                     state,
                     onSelect = viewModel::selectPlaylist,
                     onCreate = viewModel::createPlaylist,
                     onRename = viewModel::renameSelectedPlaylist,
+                    onEditDetails = viewModel::updateSelectedPlaylistDetails,
                     onDelete = viewModel::deleteSelectedPlaylist,
                     onRemoveTrack = viewModel::removeFromSelectedPlaylist,
+                    onMoveItem = viewModel::moveSelectedPlaylistItem,
                     onPlayQueue = onPlayQueue,
                 )
                 4 -> FavoritesTab(
@@ -253,12 +312,23 @@ fun LibraryScreen(
     }
 
     // "Add to playlist" target sheet — opened from Tracks/Favorites rows.
+    // Stays open across add/remove so the "Saved in"/"Save in" sections
+    // move the row under the user's finger (Spotify convention).
     val adding = addToPlaylistItem
     if (adding != null) {
+        val membershipFlow = remember(adding.mediaId) {
+            viewModel.playlistsContaining(adding.mediaId)
+        }
+        val containing by membershipFlow.collectAsStateWithLifecycle(
+            initialValue = emptyList(),
+        )
         AddToPlaylistSheet(
             playlists = state.playlists,
-            onPick = { viewModel.addToPlaylist(it.id, adding); addToPlaylistItem = null },
-            onNew = { viewModel.createPlaylistAndAdd(it, adding); addToPlaylistItem = null },
+            containing = containing,
+            onPick = { viewModel.addToPlaylist(it.id, adding) },
+            onRemove = { viewModel.removeFromPlaylist(it.id, adding.mediaId) },
+            onClearAll = { viewModel.removeFromAllPlaylists(adding.mediaId) },
+            onNew = { viewModel.createPlaylistAndAdd(it, adding) },
             onDismiss = { addToPlaylistItem = null },
         )
     }
@@ -289,58 +359,219 @@ fun LibraryScreen(
     }
 }
 
+/**
+ * Discs — right-aligned controls row (⋯ sort sheet + list↔grid toggle,
+ * both persisted in `pianostream.library`), then the rows/cards.
+ * Sort fields: RECENT → `scannedAt` desc (newest scan first), TITLE_AZ →
+ * `title`, ARTIST → `performer ?: composer`.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DiscsTab(
     state: LibraryViewModel.UiState,
     onSelect: (Disc) -> Unit,
+    onSetSort: (LibraryPrefsStore.DiscsSort) -> Unit,
+    onToggleView: () -> Unit,
 ) {
-    if (state.discs.isEmpty()) {
-        EmptyState("No discs", "Run a scan to import albums and loose tracks.")
-        return
-    }
-    // Loose files land as one-track discs (Singles.kt). Like Apple Music's
-    // "Singles & EPs" split they group under their own header once present;
-    // an albums-only library keeps the plain list.
-    val albums = state.discs.filterNot { it.isSingle() }
-    val singles = state.discs.filter { it.isSingle() }
-    // List rows (mini vinyl thumb + title) — denser than the card grid.
-    // The wrapper keeps the "Open disc" contentDescription E2E asserts on
-    // while TrackRow owns the visual row.
-    LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-        if (albums.isNotEmpty() && singles.isNotEmpty()) {
-            item(key = "header-albums") { SectionHeader("Albums") }
-        }
-        items(albums, key = { it.id }) { disc ->
-            Box(
-                Modifier.semantics(mergeDescendants = true) {
-                    contentDescription = "Open disc: ${disc.title}"
-                },
-            ) {
-                TrackRow(
-                    title = disc.title,
-                    subtitle = disc.performer ?: disc.composer,
-                    artworkUri = disc.artworkUri,
-                    durationMs = null,
-                    onClick = { onSelect(disc) },
+    val query = state.libraryQuery
+    var sortOpen by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+        ) {
+            IconButton(onClick = { sortOpen = true }) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "Sort discs",
+                    tint = Aurora.TextSecondary,
+                )
+            }
+            IconButton(onClick = onToggleView) {
+                Icon(
+                    if (state.discsView == LibraryPrefsStore.DiscsView.LIST) {
+                        Icons.Filled.GridView
+                    } else {
+                        Icons.AutoMirrored.Filled.ViewList
+                    },
+                    contentDescription = if (
+                        state.discsView == LibraryPrefsStore.DiscsView.LIST
+                    ) {
+                        "Show as grid"
+                    } else {
+                        "Show as list"
+                    },
+                    tint = Aurora.TextSecondary,
                 )
             }
         }
-        if (singles.isNotEmpty()) {
-            item(key = "header-singles") { SectionHeader("Singles") }
-            items(singles, key = { it.id }) { disc ->
-                Box(
-                    Modifier.semantics(mergeDescendants = true) {
-                        contentDescription = "Open disc: ${disc.title}"
-                    },
-                ) {
-                    TrackRow(
-                        title = disc.title,
-                        subtitle = disc.performer ?: disc.composer,
-                        artworkUri = disc.artworkUri,
-                        durationMs = null,
-                        onClick = { onSelect(disc) },
-                        trailing = { SingleBadge() },
+        if (state.discs.isEmpty()) {
+            EmptyState("No discs", "Run a scan to import albums and loose tracks.")
+        } else {
+            val visible = remember(state.discs, state.discsSort, query) {
+                val filtered =
+                    if (query.isBlank()) {
+                        state.discs
+                    } else {
+                        state.discs.filter { it.matchesLibraryQuery(query) }
+                    }
+                when (state.discsSort) {
+                    LibraryPrefsStore.DiscsSort.RECENT -> filtered.sortedWith(
+                        compareByDescending<Disc> { it.scannedAt }
+                            .thenByDescending { it.id },
                     )
+                    LibraryPrefsStore.DiscsSort.TITLE_AZ ->
+                        filtered.sortedBy { it.title.lowercase(Locale.ROOT) }
+                    LibraryPrefsStore.DiscsSort.ARTIST -> filtered.sortedBy {
+                        (it.performer ?: it.composer).orEmpty().lowercase(Locale.ROOT)
+                    }
+                }
+            }
+            if (visible.isEmpty()) {
+                EmptyState(
+                    "Nothing found in library",
+                    "No matches for \"$query\".",
+                )
+            } else {
+                // Loose files land as one-track discs (Singles.kt). Like
+                // Apple Music's "Singles & EPs" split they group under their
+                // own header once present; an albums-only library keeps the
+                // plain list.
+                val albums = visible.filterNot { it.isSingle() }
+                val singles = visible.filter { it.isSingle() }
+                if (state.discsView == LibraryPrefsStore.DiscsView.GRID) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(
+                            start = 12.dp,
+                            end = 12.dp,
+                            bottom = 96.dp,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        if (albums.isNotEmpty() && singles.isNotEmpty()) {
+                            item(
+                                key = "header-albums",
+                                span = { GridItemSpan(maxLineSpan) },
+                            ) { SectionHeader("Albums") }
+                        }
+                        items(albums, key = { it.id }) { disc ->
+                            DiscCard(
+                                title = disc.title,
+                                subtitle = disc.performer ?: disc.composer,
+                                artworkUri = disc.artworkUri,
+                                onClick = { onSelect(disc) },
+                                isSingle = disc.isSingle(),
+                            )
+                        }
+                        if (singles.isNotEmpty()) {
+                            item(
+                                key = "header-singles",
+                                span = { GridItemSpan(maxLineSpan) },
+                            ) { SectionHeader("Singles") }
+                            items(singles, key = { it.id }) { disc ->
+                                DiscCard(
+                                    title = disc.title,
+                                    subtitle = disc.performer ?: disc.composer,
+                                    artworkUri = disc.artworkUri,
+                                    onClick = { onSelect(disc) },
+                                    isSingle = true,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // List rows (mini vinyl thumb + title) — denser than the
+                    // card grid. The wrapper keeps the "Open disc"
+                    // contentDescription E2E asserts on while TrackRow owns
+                    // the visual row.
+                    LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
+                        if (albums.isNotEmpty() && singles.isNotEmpty()) {
+                            item(key = "header-albums") { SectionHeader("Albums") }
+                        }
+                        items(albums, key = { it.id }) { disc ->
+                            Box(
+                                Modifier.semantics(mergeDescendants = true) {
+                                    contentDescription = "Open disc: ${disc.title}"
+                                },
+                            ) {
+                                TrackRow(
+                                    title = disc.title,
+                                    subtitle = disc.performer ?: disc.composer,
+                                    artworkUri = disc.artworkUri,
+                                    durationMs = null,
+                                    onClick = { onSelect(disc) },
+                                )
+                            }
+                        }
+                        if (singles.isNotEmpty()) {
+                            item(key = "header-singles") { SectionHeader("Singles") }
+                            items(singles, key = { it.id }) { disc ->
+                                Box(
+                                    Modifier.semantics(mergeDescendants = true) {
+                                        contentDescription = "Open disc: ${disc.title}"
+                                    },
+                                ) {
+                                    TrackRow(
+                                        title = disc.title,
+                                        subtitle = disc.performer ?: disc.composer,
+                                        artworkUri = disc.artworkUri,
+                                        durationMs = null,
+                                        onClick = { onSelect(disc) },
+                                        trailing = { SingleBadge() },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (sortOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { sortOpen = false },
+            containerColor = Vinyl.BgTop,
+        ) {
+            Column(Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    "Sort discs",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Aurora.TextPrimary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                listOf(
+                    LibraryPrefsStore.DiscsSort.RECENT to "Recently added",
+                    LibraryPrefsStore.DiscsSort.TITLE_AZ to "A-Z",
+                    LibraryPrefsStore.DiscsSort.ARTIST to "Artist",
+                ).forEach { (sort, label) ->
+                    val selected = state.discsSort == sort
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSetSort(sort); sortOpen = false }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (selected) Vinyl.Gold else Aurora.TextPrimary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (selected) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = Vinyl.Gold,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -352,28 +583,53 @@ private fun TracksTab(
     state: LibraryViewModel.UiState,
     onPlayAt: (Int) -> Unit,
     onAddToPlaylist: (Int) -> Unit,
+    onTrackActions: ((Track) -> Unit)?,
 ) {
     val disc = state.selectedDisc
     if (disc == null) {
         EmptyState("Pick a disc", "Track list appears here.")
         return
     }
+    val query = state.libraryQuery
+    // Indexed pairs so play/add still address the full list while filtered.
+    val visible = remember(state.tracks, query) {
+        state.tracks.withIndex().filter { it.value.matchesLibraryQuery(query) }
+    }
+    if (query.isNotBlank() && visible.isEmpty() && state.tracks.isNotEmpty()) {
+        Column {
+            DiscHeader(disc)
+            EmptyState("Nothing found in library", "No matches for \"$query\".")
+        }
+        return
+    }
     LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
         item { DiscHeader(disc) }
-        itemsIndexed(state.tracks, key = { _, t -> t.id }) { idx, t ->
+        itemsIndexed(visible, key = { _, t -> t.value.id }) { _, iv ->
+            val t = iv.value
             TrackRow(
                 title = t.title,
                 subtitle = t.performer ?: t.composer,
                 artworkUri = disc.artworkUri,
                 durationMs = t.endMs?.let { it - t.startMs },
-                onClick = { onPlayAt(idx) },
+                onClick = { onPlayAt(iv.index) },
                 trailing = {
-                    IconButton(onClick = { onAddToPlaylist(idx) }) {
-                        Icon(
-                            Icons.Outlined.PlaylistAdd,
-                            contentDescription = "Add to playlist",
-                            tint = Aurora.TextSecondary,
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { onAddToPlaylist(iv.index) }) {
+                            Icon(
+                                Icons.Outlined.PlaylistAdd,
+                                contentDescription = "Add to playlist",
+                                tint = Aurora.TextSecondary,
+                            )
+                        }
+                        if (onTrackActions != null) {
+                            IconButton(onClick = { onTrackActions(t) }) {
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = "Track actions",
+                                    tint = Aurora.TextSecondary,
+                                )
+                            }
+                        }
                     }
                 },
             )
@@ -434,18 +690,31 @@ private fun DiscHeader(disc: Disc) {
 }
 
 @Composable
-private fun ComposersTab(state: LibraryViewModel.UiState) {
+private fun ComposersTab(
+    state: LibraryViewModel.UiState,
+    onOpenArtist: (String) -> Unit,
+) {
     if (state.composers.isEmpty()) {
         EmptyState("No composers", "Composers come from track SONGWRITER tags.")
         return
     }
+    val query = state.libraryQuery
+    val visible = remember(state.composers, query) {
+        state.composers.filter { it.contains(query, ignoreCase = true) }
+    }
+    if (query.isNotBlank() && visible.isEmpty()) {
+        EmptyState("Nothing found in library", "No matches for \"$query\".")
+        return
+    }
     LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-        items(state.composers) { c ->
+        items(visible) { c ->
             Text(
                 c,
                 style = MaterialTheme.typography.bodyLarge,
+                color = Aurora.TextPrimary,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clickable { onOpenArtist(c) }
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             )
         }
@@ -453,9 +722,10 @@ private fun ComposersTab(state: LibraryViewModel.UiState) {
 }
 
 /**
- * Playlists — the list view (each row: name + track count, "New playlist"
- * action up top) or the selected playlist's detail view (back arrow, ⋯
- * Rename/Delete menu, ordered track rows that play through [onPlayQueue]).
+ * Playlists — the list view (each row: name + track count + generated cover
+ * thumb, "New playlist" action up top) or the selected playlist's detail
+ * surface ([PlaylistDetailContent]: mosaic hero, Play/Shuffle/⋯, indexed
+ * rows with remove + drag-to-reorder).
  */
 @Composable
 private fun PlaylistsTab(
@@ -463,13 +733,19 @@ private fun PlaylistsTab(
     onSelect: (Long?) -> Unit,
     onCreate: (String) -> Unit,
     onRename: (String) -> Unit,
+    onEditDetails: (String, String) -> Unit,
     onDelete: () -> Unit,
     onRemoveTrack: (String) -> Unit,
+    onMoveItem: (Int, Int) -> Unit,
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
 ) {
     val selectedId = state.selectedPlaylistId
     if (selectedId == null) {
         var createOpen by remember { mutableStateOf(false) }
+        val query = state.libraryQuery
+        val visible = remember(state.playlists, query) {
+            state.playlists.filter { it.matchesLibraryQuery(query) }
+        }
         Column {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -492,13 +768,15 @@ private fun PlaylistsTab(
                     "No playlists",
                     "Create one, then add tracks from Tracks or Favourites.",
                 )
+            } else if (query.isNotBlank() && visible.isEmpty()) {
+                EmptyState("Nothing found in library", "No matches for \"$query\".")
             } else {
                 LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-                    items(state.playlists, key = { it.id }) { p ->
+                    items(visible, key = { it.id }) { p ->
                         TrackRow(
                             title = p.name,
                             subtitle = "${p.trackCount} tracks",
-                            artworkUri = null,
+                            artworkUri = p.coverUris.firstOrNull(),
                             durationMs = null,
                             onClick = { onSelect(p.id) },
                         )
@@ -517,117 +795,19 @@ private fun PlaylistsTab(
         return
     }
 
-    // Detail view.
-    val playlist = state.playlists.firstOrNull { it.id == selectedId }
-    var menuOpen by remember { mutableStateOf(false) }
-    var renameOpen by remember { mutableStateOf(false) }
-    var deleteOpen by remember { mutableStateOf(false) }
-    Column {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        ) {
-            IconButton(onClick = { onSelect(null) }) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back to playlists",
-                    tint = Aurora.TextSecondary,
-                )
-            }
-            Text(
-                playlist?.name.orEmpty(),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = Aurora.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Playlist actions",
-                        tint = Aurora.TextSecondary,
-                    )
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    containerColor = Vinyl.BgTop,
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Rename", color = Vinyl.Gold) },
-                        onClick = { menuOpen = false; renameOpen = true },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete playlist", color = Aurora.TextSecondary) },
-                        onClick = { menuOpen = false; deleteOpen = true },
-                    )
-                }
-            }
-        }
-        if (state.playlistTracks.isEmpty()) {
-            EmptyState(
-                "Empty playlist",
-                "Add tracks from the Tracks or Favourites tabs.",
-            )
-        } else {
-            LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-                itemsIndexed(state.playlistTracks, key = { _, t -> t.mediaId }) { idx, t ->
-                    TrackRow(
-                        title = t.title,
-                        subtitle = t.artist,
-                        artworkUri = t.artworkUri,
-                        durationMs = t.durationMs,
-                        onClick = { onPlayQueue(state.playlistTracks, idx) },
-                        trailing = {
-                            IconButton(onClick = { onRemoveTrack(t.mediaId) }) {
-                                Icon(
-                                    Icons.Outlined.RemoveCircleOutline,
-                                    contentDescription = "Remove from playlist",
-                                    tint = Aurora.TextSecondary,
-                                )
-                            }
-                        },
-                    )
-                }
-            }
-        }
-    }
-    if (renameOpen) {
-        PlaylistNameDialog(
-            title = "Rename playlist",
-            initial = playlist?.name.orEmpty(),
-            confirmLabel = "Save",
-            onConfirm = { onRename(it); renameOpen = false },
-            onDismiss = { renameOpen = false },
-        )
-    }
-    if (deleteOpen) {
-        AlertDialog(
-            onDismissRequest = { deleteOpen = false },
-            containerColor = Vinyl.BgTop,
-            title = { Text("Delete playlist?") },
-            text = {
-                Text(
-                    "\"${playlist?.name.orEmpty()}\" and its track list are removed. " +
-                        "This cannot be undone.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { deleteOpen = false; onDelete() },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Aurora.Error),
-                ) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteOpen = false }) { Text("Cancel") }
-            },
-        )
-    }
+    // Detail view (v2 — mosaic hero + reorderable rows).
+    PlaylistDetailContent(
+        playlist = state.playlists.firstOrNull { it.id == selectedId },
+        tracks = state.playlistTracks,
+        query = state.libraryQuery,
+        onBack = { onSelect(null) },
+        onPlayQueue = onPlayQueue,
+        onRename = onRename,
+        onEditDetails = onEditDetails,
+        onDelete = onDelete,
+        onRemoveTrack = onRemoveTrack,
+        onMoveItem = onMoveItem,
+    )
 }
 
 /**
@@ -635,7 +815,7 @@ private fun PlaylistsTab(
  * gold confirm, same convention as the shrink-confirmation dialog.
  */
 @Composable
-private fun PlaylistNameDialog(
+internal fun PlaylistNameDialog(
     title: String,
     initial: String = "",
     confirmLabel: String,
@@ -676,18 +856,30 @@ private fun PlaylistNameDialog(
 }
 
 /**
- * "Add to playlist" sheet — playlists as rows plus a "New playlist" row
- * that creates-then-adds (mirrors the queue sheet's ModalBottomSheet).
+ * "Add to playlist" sheet v2 (Spotify's add sheet): a "Find playlist"
+ * search field filters both sections; "Saved in" lists memberships first
+ * (checkmarked, tap removes) above "Save in" (tap adds); "Clear all"
+ * drops the track from every playlist. The sheet stays open so the row
+ * visibly moves between sections.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddToPlaylistSheet(
     playlists: List<Playlist>,
+    /** Ids of playlists already containing the track. */
+    containing: List<Long>,
     onPick: (Playlist) -> Unit,
+    onRemove: (Playlist) -> Unit,
+    onClearAll: () -> Unit,
     onNew: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var newOpen by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
+    val saved = playlists.filter { it.id in containing }
+    val others = playlists.filter { it.id !in containing }
+    val savedVisible = saved.filter { it.name.contains(findQuery, true) }
+    val othersVisible = others.filter { it.name.contains(findQuery, true) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Vinyl.BgTop,
@@ -704,12 +896,47 @@ private fun AddToPlaylistSheet(
                 color = Aurora.TextPrimary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
+            OutlinedTextField(
+                value = findQuery,
+                onValueChange = { findQuery = it },
+                singleLine = true,
+                placeholder = { Text("Find playlist", color = Aurora.TextSecondary) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = Aurora.TextSecondary,
+                    )
+                },
+                trailingIcon = {
+                    if (findQuery.isNotEmpty()) {
+                        IconButton(onClick = { findQuery = "" }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "Clear search",
+                                tint = Aurora.TextSecondary,
+                            )
+                        }
+                    }
+                },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Aurora.TextPrimary,
+                    unfocusedTextColor = Aurora.TextPrimary,
+                    cursorColor = Vinyl.Gold,
+                    focusedBorderColor = Vinyl.Gold,
+                    unfocusedBorderColor = Aurora.Hairline,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { newOpen = true }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 Icon(Icons.Filled.Add, contentDescription = null, tint = Vinyl.Gold)
                 Spacer(Modifier.width(12.dp))
@@ -720,18 +947,72 @@ private fun AddToPlaylistSheet(
                     color = Vinyl.Gold,
                 )
             }
-            playlists.forEach { p ->
-                TrackRow(
-                    title = p.name,
-                    subtitle = "${p.trackCount} tracks",
-                    artworkUri = null,
-                    durationMs = null,
-                    onClick = { onPick(p) },
+            if (saved.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                ) {
+                    Text(
+                        "Saved in",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Aurora.TextSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = onClearAll,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = Aurora.Error,
+                        ),
+                    ) { Text("Clear all") }
+                }
+                savedVisible.forEach { p ->
+                    TrackRow(
+                        title = p.name,
+                        subtitle = "${p.trackCount} tracks",
+                        artworkUri = p.coverUris.firstOrNull(),
+                        durationMs = null,
+                        onClick = { onRemove(p) },
+                        trailing = {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = "Saved — tap to remove",
+                                tint = Vinyl.Gold,
+                            )
+                        },
+                    )
+                }
+            }
+            if (others.isNotEmpty()) {
+                Text(
+                    "Save in",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Aurora.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
+                othersVisible.forEach { p ->
+                    TrackRow(
+                        title = p.name,
+                        subtitle = "${p.trackCount} tracks",
+                        artworkUri = p.coverUris.firstOrNull(),
+                        durationMs = null,
+                        onClick = { onPick(p) },
+                    )
+                }
             }
             if (playlists.isEmpty()) {
                 Text(
                     "No playlists yet — create one above.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Aurora.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            } else if (findQuery.isNotBlank() &&
+                savedVisible.isEmpty() && othersVisible.isEmpty()
+            ) {
+                Text(
+                    "No playlists match \"$findQuery\".",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Aurora.TextSecondary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -768,8 +1049,16 @@ private fun FavoritesTab(
             EmptyState("No favourites", "Heart a track to see it here.")
             return
         }
+        val query = state.libraryQuery
+        val visible = remember(state.favorites, query) {
+            state.favorites.filter { it.matchesLibraryQuery(query) }
+        }
+        if (query.isNotBlank() && visible.isEmpty()) {
+            EmptyState("Nothing found in library", "No matches for \"$query\".")
+            return
+        }
         LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-            items(state.favorites, key = { it.mediaId }) { f ->
+            items(visible, key = { it.mediaId }) { f ->
                 TrackRow(
                     title = f.title,
                     subtitle = f.artist,
@@ -790,6 +1079,30 @@ private fun FavoritesTab(
         }
     }
 }
+
+// --- "find in library" filtering -------------------------------------------
+
+private fun String?.containsQuery(query: String): Boolean =
+    this?.contains(query, ignoreCase = true) == true
+
+internal fun Disc.matchesLibraryQuery(query: String): Boolean =
+    title.containsQuery(query) ||
+        performer.containsQuery(query) ||
+        composer.containsQuery(query)
+
+internal fun Track.matchesLibraryQuery(query: String): Boolean =
+    title.containsQuery(query) ||
+        performer.containsQuery(query) ||
+        composer.containsQuery(query)
+
+internal fun QueueItem.matchesLibraryQuery(query: String): Boolean =
+    title.containsQuery(query) || artist.containsQuery(query)
+
+internal fun FavoriteItem.matchesLibraryQuery(query: String): Boolean =
+    title.containsQuery(query) || artist.containsQuery(query)
+
+internal fun Playlist.matchesLibraryQuery(query: String): Boolean =
+    name.containsQuery(query)
 
 /** Favourite row → single-entry queue. */
 private fun FavoriteItem.toQueueItem(): QueueItem = QueueItem(

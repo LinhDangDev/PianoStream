@@ -32,4 +32,7 @@ data class PlaylistItemEntity(
     val artworkUri: String?,
     val source: String,
     val addedAt: Long,
+    /** Track duration when the source reported one (v3) — drives the detail
+     *  header's "N songs · Xh Ym" line and the per-row duration. */
+    val durationMs: Long? = null,
 )

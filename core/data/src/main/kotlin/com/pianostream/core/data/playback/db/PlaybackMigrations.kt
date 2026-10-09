@@ -40,4 +40,24 @@ object PlaybackMigrations {
             )
         }
     }
+
+    /**
+     * v2 → v3: playlist metadata for the detail surface — `description`
+     * (Edit details dialog) + `coverUris` (generated 2×2 mosaic cache) on
+     * `playlists`, and `durationMs` on `playlist_items` so detail rows and
+     * the "N songs · Xh Ym" header can show real lengths. All additive.
+     */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE `playlists` ADD COLUMN `description` " +
+                    "TEXT NOT NULL DEFAULT ''",
+            )
+            db.execSQL(
+                "ALTER TABLE `playlists` ADD COLUMN `coverUris` " +
+                    "TEXT NOT NULL DEFAULT ''",
+            )
+            db.execSQL("ALTER TABLE `playlist_items` ADD COLUMN `durationMs` INTEGER")
+        }
+    }
 }

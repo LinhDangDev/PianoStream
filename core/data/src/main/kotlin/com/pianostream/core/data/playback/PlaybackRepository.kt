@@ -74,6 +74,9 @@ public interface PlaybackRepository {
 
     public suspend fun renamePlaylist(id: Long, name: String) {}
 
+    /** Edit-details write: name + description in one update (v3). */
+    public suspend fun updatePlaylistDetails(id: Long, name: String, description: String) {}
+
     /** Deletes the playlist; its items cascade away with it. */
     public suspend fun deletePlaylist(id: Long) {}
 
@@ -84,6 +87,21 @@ public interface PlaybackRepository {
     public suspend fun addToPlaylist(playlistId: Long, item: QueueItem) {}
 
     public suspend fun removeFromPlaylist(playlistId: Long, mediaId: String) {}
+
+    /**
+     * Drag-to-reorder: moves the row at `fromPosition` to `toPosition` and
+     * renumbers `position` in one transaction (v3).
+     */
+    public suspend fun movePlaylistItem(playlistId: Long, fromPosition: Int, toPosition: Int) {}
+
+    /**
+     * Ids of every playlist containing [mediaId] — feeds the add-to-playlist
+     * sheet's "Saved in" section (v3).
+     */
+    public fun observePlaylistsContaining(mediaId: String): Flow<List<Long>> = emptyFlow()
+
+    /** Removes [mediaId] from every playlist ("Clear all", v3). */
+    public suspend fun removeFromAllPlaylists(mediaId: String) {}
 
     /**
      * Post-scan reconcile (B1): sets `missing=true` on every queue/history/

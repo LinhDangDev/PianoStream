@@ -10,4 +10,11 @@ public data class Playlist(
     val name: String,
     val createdAt: Long,
     val trackCount: Int,
+    /** User-written blurb (Edit details dialog); empty when never set. */
+    val description: String = "",
+    /**
+     * Generated cover: up to 4 artwork URIs taken from the first tracks,
+     * refreshed by the repository on every membership change (v3).
+     */
+    val coverUris: List<String> = emptyList(),
 )

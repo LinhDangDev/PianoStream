@@ -18,7 +18,7 @@ import com.pianostream.core.data.playback.db.entity.QueueStateEntity
         PlaylistEntity::class,
         PlaylistItemEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class PlaybackDatabase : RoomDatabase() {

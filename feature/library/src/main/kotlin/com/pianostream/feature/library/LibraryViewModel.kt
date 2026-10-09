@@ -12,10 +12,12 @@ import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.data.settings.LibraryPrefsStore
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.local.scan.LibraryHasher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -41,6 +43,7 @@ class LibraryViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
     private val playbackRepository: PlaybackRepository,
     private val settings: SettingsDataStore,
+    private val libraryPrefs: LibraryPrefsStore,
 ) : ViewModel() {
 
     data class ScanSummary(
@@ -69,6 +72,10 @@ class LibraryViewModel @Inject constructor(
         val pendingShrink: ScanResult? = null,
         val selectedDisc: Disc? = null,
         val grantError: String? = null,
+        /** "Search library" field — live-filters the visible tab's rows. */
+        val libraryQuery: String = "",
+        val discsSort: LibraryPrefsStore.DiscsSort = LibraryPrefsStore.DiscsSort.RECENT,
+        val discsView: LibraryPrefsStore.DiscsView = LibraryPrefsStore.DiscsView.LIST,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -117,6 +124,38 @@ class LibraryViewModel @Inject constructor(
                 )
             }
         }
+        viewModelScope.launch {
+            libraryPrefs.discsSort.collect { sort ->
+                _state.update { it.copy(discsSort = sort) }
+            }
+        }
+        viewModelScope.launch {
+            libraryPrefs.discsView.collect { view ->
+                _state.update { it.copy(discsView = view) }
+            }
+        }
+    }
+
+    // --- find in library ------------------------------------------------------
+
+    /** Backs the pinned "Search library" field (empty = unfiltered). */
+    fun setLibraryQuery(query: String) {
+        _state.update { it.copy(libraryQuery = query) }
+    }
+
+    // --- discs sort / view ----------------------------------------------------
+
+    fun setDiscsSort(sort: LibraryPrefsStore.DiscsSort) {
+        viewModelScope.launch { libraryPrefs.setDiscsSort(sort) }
+    }
+
+    /** list <-> grid flip; persisted so the next visit keeps the choice. */
+    fun toggleDiscsView() {
+        val next = when (_state.value.discsView) {
+            LibraryPrefsStore.DiscsView.LIST -> LibraryPrefsStore.DiscsView.GRID
+            LibraryPrefsStore.DiscsView.GRID -> LibraryPrefsStore.DiscsView.LIST
+        }
+        viewModelScope.launch { libraryPrefs.setDiscsView(next) }
     }
 
     /**
@@ -201,6 +240,19 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { playbackRepository.renamePlaylist(id, name) }
     }
 
+    /** Edit-details write (name + description) on the open playlist. */
+    fun updateSelectedPlaylistDetails(name: String, description: String) {
+        val id = _state.value.selectedPlaylistId ?: return
+        if (name.isBlank()) return
+        viewModelScope.launch { playbackRepository.updatePlaylistDetails(id, name, description) }
+    }
+
+    /** Drag-to-reorder inside the open playlist's detail rows. */
+    fun moveSelectedPlaylistItem(fromPosition: Int, toPosition: Int) {
+        val id = _state.value.selectedPlaylistId ?: return
+        viewModelScope.launch { playbackRepository.movePlaylistItem(id, fromPosition, toPosition) }
+    }
+
     /** Deletes the selected playlist and backs out to the list. */
     fun deleteSelectedPlaylist() {
         val id = _state.value.selectedPlaylistId ?: return
@@ -225,6 +277,20 @@ class LibraryViewModel @Inject constructor(
     fun removeFromSelectedPlaylist(mediaId: String) {
         val id = _state.value.selectedPlaylistId ?: return
         viewModelScope.launch { playbackRepository.removeFromPlaylist(id, mediaId) }
+    }
+
+    /** Removes [mediaId] from [playlistId] (add-to-playlist "Saved in" tap). */
+    fun removeFromPlaylist(playlistId: Long, mediaId: String) {
+        viewModelScope.launch { playbackRepository.removeFromPlaylist(playlistId, mediaId) }
+    }
+
+    /** Live membership for the add-to-playlist sheet's "Saved in" section. */
+    fun playlistsContaining(mediaId: String): Flow<List<Long>> =
+        playbackRepository.observePlaylistsContaining(mediaId)
+
+    /** "Clear all" — drops [mediaId] from every playlist it sits in. */
+    fun removeFromAllPlaylists(mediaId: String) {
+        viewModelScope.launch { playbackRepository.removeFromAllPlaylists(mediaId) }
     }
 
     /**

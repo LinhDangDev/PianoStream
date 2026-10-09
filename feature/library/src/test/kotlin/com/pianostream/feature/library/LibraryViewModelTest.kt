@@ -14,6 +14,7 @@ import com.pianostream.core.data.playback.model.PlayHistoryItem
 import com.pianostream.core.data.playback.model.Playlist
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
+import com.pianostream.core.data.settings.LibraryPrefsStore
 import com.pianostream.core.data.settings.SettingsDataStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -129,17 +130,68 @@ class LibraryViewModelTest {
                 (playlistId to playlistTracks.value[playlistId].orEmpty()
                     .filterNot { it.mediaId == mediaId })
         }
+
+        override suspend fun movePlaylistItem(
+            playlistId: Long,
+            fromPosition: Int,
+            toPosition: Int,
+        ) {
+            val rows = playlistTracks.value[playlistId].orEmpty().toMutableList()
+            if (fromPosition !in rows.indices || toPosition !in rows.indices) return
+            val moved = rows.removeAt(fromPosition)
+            rows.add(toPosition, moved)
+            playlistTracks.value = playlistTracks.value +
+                (playlistId to rows.mapIndexed { i, it -> it.copy(position = i) })
+        }
+
+        override fun observePlaylistsContaining(mediaId: String): Flow<List<Long>> =
+            kotlinx.coroutines.flow.flow {
+                playlistTracks.collect { map ->
+                    emit(
+                        map.filterValues { rows ->
+                            rows.any { it.mediaId == mediaId }
+                        }.keys.toList(),
+                    )
+                }
+            }
+
+        override suspend fun removeFromAllPlaylists(mediaId: String) {
+            playlistTracks.value = playlistTracks.value.mapValues { (_, rows) ->
+                rows.filterNot { it.mediaId == mediaId }
+            }
+        }
+
+        override suspend fun updatePlaylistDetails(
+            id: Long,
+            name: String,
+            description: String,
+        ) {
+            playlistsFlow.value = playlistsFlow.value.map {
+                if (it.id == id) {
+                    it.copy(name = name.trim(), description = description.trim())
+                } else {
+                    it
+                }
+            }
+        }
     }
 
     private lateinit var settings: SettingsDataStore
+    private lateinit var libraryPrefs: LibraryPrefsStore
     private lateinit var library: FakeLibraryRepo
     private lateinit var playback: FakePlaybackRepo
     private var mainDispatcher: kotlinx.coroutines.test.TestDispatcher? = null
 
     @Before
     fun setUp() {
-        settings = SettingsDataStore.default(RuntimeEnvironment.getApplication())
-        kotlinx.coroutines.runBlocking { settings.clear() }
+        val app = RuntimeEnvironment.getApplication()
+        settings = SettingsDataStore.default(app)
+        libraryPrefs = LibraryPrefsStore.default(app)
+        kotlinx.coroutines.runBlocking {
+            settings.clear()
+            libraryPrefs.setDiscsSort(LibraryPrefsStore.DiscsSort.RECENT)
+            libraryPrefs.setDiscsView(LibraryPrefsStore.DiscsView.LIST)
+        }
         library = FakeLibraryRepo()
         playback = FakePlaybackRepo()
     }
@@ -152,7 +204,7 @@ class LibraryViewModelTest {
     private fun TestScope.vm(): LibraryViewModel {
         mainDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(mainDispatcher!!)
-        val vm = LibraryViewModel(library, playback, settings)
+        val vm = LibraryViewModel(library, playback, settings, libraryPrefs)
         advanceUntilIdle()
         return vm
     }
@@ -311,5 +363,102 @@ class LibraryViewModelTest {
         await { vm.state.value.playlistTracks.isNotEmpty() }
         assertThat(vm.state.value.playlistTracks.single().mediaId)
             .isEqualTo("pianostream://local/x")
+    }
+
+    // --- library v3 additions -------------------------------------------------
+
+    @Test
+    fun `library query lives in ui state`() = runTest {
+        val vm = vm()
+        assertThat(vm.state.value.libraryQuery).isEmpty()
+        vm.setLibraryQuery("bach")
+        advanceUntilIdle()
+        assertThat(vm.state.value.libraryQuery).isEqualTo("bach")
+        vm.setLibraryQuery("")
+        advanceUntilIdle()
+        assertThat(vm.state.value.libraryQuery).isEmpty()
+    }
+
+    @Test
+    fun `discs sort and view persist through the prefs store`() = runTest {
+        val vm = vm()
+        assertThat(vm.state.value.discsSort)
+            .isEqualTo(LibraryPrefsStore.DiscsSort.RECENT)
+        assertThat(vm.state.value.discsView)
+            .isEqualTo(LibraryPrefsStore.DiscsView.LIST)
+
+        vm.setDiscsSort(LibraryPrefsStore.DiscsSort.ARTIST)
+        vm.toggleDiscsView()
+        await {
+            vm.state.value.discsSort == LibraryPrefsStore.DiscsSort.ARTIST &&
+                vm.state.value.discsView == LibraryPrefsStore.DiscsView.GRID
+        }
+        assertThat(libraryPrefs.discsSort.first())
+            .isEqualTo(LibraryPrefsStore.DiscsSort.ARTIST)
+        assertThat(libraryPrefs.discsView.first())
+            .isEqualTo(LibraryPrefsStore.DiscsView.GRID)
+    }
+
+    @Test
+    fun `moveSelectedPlaylistItem reorders the open playlist`() = runTest {
+        playback.playlistsFlow.value = listOf(Playlist(7, "P", 1, 3))
+        playback.playlistTracks.value = mapOf(
+            7L to listOf(
+                queueItem("m/a", 0),
+                queueItem("m/b", 1),
+                queueItem("m/c", 2),
+            ),
+        )
+        val vm = vm()
+        vm.selectPlaylist(7)
+        await { vm.state.value.playlistTracks.size == 3 }
+        vm.moveSelectedPlaylistItem(2, 0)
+        await {
+            vm.state.value.playlistTracks.map { it.mediaId } ==
+                listOf("m/c", "m/a", "m/b")
+        }
+        assertThat(vm.state.value.playlistTracks.map { it.position })
+            .containsExactly(0, 1, 2).inOrder()
+    }
+
+    @Test
+    fun `updateSelectedPlaylistDetails writes name and description`() = runTest {
+        playback.playlistsFlow.value = listOf(Playlist(7, "P", 1, 0))
+        val vm = vm()
+        vm.selectPlaylist(7)
+        vm.updateSelectedPlaylistDetails("New name", "Night drives")
+        await { vm.state.value.playlists.first().name == "New name" }
+        assertThat(vm.state.value.playlists.first().description)
+            .isEqualTo("Night drives")
+    }
+
+    @Test
+    fun `playlistsContaining reports membership for the add sheet`() = runTest {
+        playback.playlistTracks.value = mapOf(
+            1L to listOf(queueItem("m/a", 0)),
+            2L to listOf(queueItem("m/b", 0), queueItem("m/a", 1)),
+        )
+        val vm = vm()
+        val containing = vm.playlistsContaining("m/a").first()
+        assertThat(containing).containsExactly(1L, 2L)
+        val none = vm.playlistsContaining("m/zzz").first()
+        assertThat(none).isEmpty()
+    }
+
+    @Test
+    fun `removeFromAllPlaylists drops the track everywhere`() = runTest {
+        playback.playlistTracks.value = mapOf(
+            1L to listOf(queueItem("m/a", 0), queueItem("m/b", 1)),
+            2L to listOf(queueItem("m/a", 0)),
+        )
+        val vm = vm()
+        vm.removeFromAllPlaylists("m/a")
+        await {
+            playback.playlistTracks.value.values.flatten()
+                .none { it.mediaId == "m/a" }
+        }
+        assertThat(playback.playlistTracks.value[1L]!!.map { it.mediaId })
+            .containsExactly("m/b")
+        assertThat(playback.playlistTracks.value[2L]).isEmpty()
     }
 }

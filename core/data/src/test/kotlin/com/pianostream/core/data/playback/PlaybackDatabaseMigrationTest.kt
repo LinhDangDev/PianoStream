@@ -266,6 +266,174 @@ class PlaybackDatabaseMigrationTest {
         assertThat(playlists.observeWithCounts().first()).isEmpty()
     }
 
+    // --- v3: details, reorder, membership --------------------------------------
+
+    @Test
+    fun v3_columns_exist() {
+        val sqlite = db.openHelper.writableDatabase
+        val playlistCols = mutableListOf<String>()
+        sqlite.query("PRAGMA table_info(playlists)").use { c ->
+            while (c.moveToNext()) playlistCols += c.getString(1)
+        }
+        assertThat(playlistCols).containsAtLeast("description", "coverUris")
+        val itemCols = mutableListOf<String>()
+        sqlite.query("PRAGMA table_info(playlist_items)").use { c ->
+            while (c.moveToNext()) itemCols += c.getString(1)
+        }
+        assertThat(itemCols).contains("durationMs")
+    }
+
+    @Test
+    fun playlist_details_and_cover_update() = runBlocking {
+        val playlists = db.playlistDao()
+        val items = db.playlistItemDao()
+        val id = playlists.insert(PlaylistEntity(name = "P", createdAt = 1))
+        playlists.updateDetails(id, "Renamed", "Slow morning mix")
+        items.upsert(
+            playlistItem(id, "m1", 0).copy(
+                artworkUri = "content://art/1",
+                durationMs = 61_000,
+            ),
+        )
+        items.upsert(playlistItem(id, "m2", 1).copy(artworkUri = "content://art/2"))
+        playlists.updateCover(id, "content://art/1\ncontent://art/2")
+
+        val row = playlists.observeWithCounts().first().single { it.playlist.id == id }
+        assertThat(row.playlist.name).isEqualTo("Renamed")
+        assertThat(row.playlist.description).isEqualTo("Slow morning mix")
+        assertThat(row.playlist.coverUris).isEqualTo("content://art/1\ncontent://art/2")
+        assertThat(playlists.topArtwork(id))
+            .containsExactly("content://art/1", "content://art/2").inOrder()
+        assertThat(items.observeItems(id).first()[0].durationMs).isEqualTo(61_000)
+    }
+
+    @Test
+    fun playlist_move_renumbers_positions() = runBlocking {
+        val items = db.playlistItemDao()
+        val id = db.playlistDao().insert(PlaylistEntity(name = "P", createdAt = 1))
+        items.upsert(playlistItem(id, "m1", 0))
+        items.upsert(playlistItem(id, "m2", 1))
+        items.upsert(playlistItem(id, "m3", 2))
+        items.upsert(playlistItem(id, "m4", 3))
+
+        items.move(id, fromPosition = 3, toPosition = 0)
+        assertThat(items.observeItems(id).first().map { it.mediaId })
+            .containsExactly("m4", "m1", "m2", "m3").inOrder()
+        assertThat(items.observeItems(id).first().map { it.position })
+            .containsExactly(0, 1, 2, 3).inOrder()
+
+        // Out-of-range and no-op moves leave the order untouched.
+        items.move(id, 0, 0)
+        items.move(id, -1, 2)
+        items.move(id, 0, 9)
+        assertThat(items.observeItems(id).first().map { it.mediaId })
+            .containsExactly("m4", "m1", "m2", "m3").inOrder()
+    }
+
+    @Test
+    fun playlists_containing_and_delete_everywhere() = runBlocking {
+        val playlists = db.playlistDao()
+        val items = db.playlistItemDao()
+        val a = playlists.insert(PlaylistEntity(name = "A", createdAt = 1))
+        val b = playlists.insert(PlaylistEntity(name = "B", createdAt = 2))
+        items.upsert(playlistItem(a, "m1", 0))
+        items.upsert(playlistItem(a, "m2", 1))
+        items.upsert(playlistItem(b, "m1", 0))
+
+        assertThat(items.observePlaylistsContaining("m1").first())
+            .containsExactly(a, b)
+        assertThat(items.observePlaylistsContaining("m2").first())
+            .containsExactly(a)
+        assertThat(items.playlistIdsContaining("m1")).containsExactly(a, b)
+
+        items.deleteEverywhere("m1")
+        assertThat(items.observePlaylistsContaining("m1").first()).isEmpty()
+        assertThat(items.observeItems(a).first().map { it.mediaId })
+            .containsExactly("m2")
+        assertThat(items.observeItems(b).first()).isEmpty()
+    }
+
+    /**
+     * Real file migration v2 → v3: hand-build the v2 playlist tables (the DDL
+     * MIGRATION_1_2 writes), seed rows, then open through Room — rows keep
+     * their values and the new columns fall back to their defaults.
+     */
+    @Test
+    fun migration_2_to_3_preserves_rows() = runBlocking<Unit> {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.deleteDatabase("migration_v3_test.db")
+        context.openOrCreateDatabase("migration_v3_test.db", 0, null).use { raw ->
+            raw.execSQL(
+                "CREATE TABLE IF NOT EXISTS `queue_items` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`position` INTEGER NOT NULL, `mediaId` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                    "`artist` TEXT, `artworkUri` TEXT, `source` TEXT NOT NULL, `durationMs` INTEGER, " +
+                    "`addedAt` INTEGER NOT NULL, `missing` INTEGER NOT NULL)",
+            )
+            raw.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_queue_items_position` ON `queue_items` (`position`)")
+            raw.execSQL(
+                "CREATE TABLE IF NOT EXISTS `queue_state` (`id` INTEGER NOT NULL, `currentIndex` INTEGER NOT NULL, " +
+                    "`positionMs` INTEGER NOT NULL, `repeatMode` INTEGER NOT NULL, `shuffle` INTEGER NOT NULL, " +
+                    "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+            )
+            raw.execSQL(
+                "CREATE TABLE IF NOT EXISTS `play_history` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`mediaId` TEXT NOT NULL, `title` TEXT NOT NULL, `artist` TEXT, `artworkUri` TEXT, " +
+                    "`source` TEXT NOT NULL, `playedAt` INTEGER NOT NULL, `playedMs` INTEGER NOT NULL, " +
+                    "`missing` INTEGER NOT NULL)",
+            )
+            raw.execSQL("CREATE INDEX IF NOT EXISTS `index_play_history_playedAt` ON `play_history` (`playedAt`)")
+            raw.execSQL(
+                "CREATE TABLE IF NOT EXISTS `favorites` (`mediaId` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                    "`artist` TEXT, `artworkUri` TEXT, `source` TEXT NOT NULL, `addedAt` INTEGER NOT NULL, " +
+                    "`missing` INTEGER NOT NULL, PRIMARY KEY(`mediaId`))",
+            )
+            raw.execSQL(
+                "CREATE TABLE IF NOT EXISTS `playlists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+            )
+            raw.execSQL(
+                "CREATE TABLE IF NOT EXISTS `playlist_items` (`playlistId` INTEGER NOT NULL, " +
+                    "`mediaId` TEXT NOT NULL, `position` INTEGER NOT NULL, `title` TEXT NOT NULL, " +
+                    "`artist` TEXT, `artworkUri` TEXT, `source` TEXT NOT NULL, `addedAt` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`playlistId`, `mediaId`), " +
+                    "FOREIGN KEY(`playlistId`) REFERENCES `playlists`(`id`) " +
+                    "ON UPDATE NO ACTION ON DELETE CASCADE)",
+            )
+            raw.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_playlist_items_playlistId` " +
+                    "ON `playlist_items` (`playlistId`)",
+            )
+            raw.execSQL("INSERT INTO playlists (id, name, createdAt) VALUES (1, 'Keep me', 42)")
+            raw.execSQL(
+                "INSERT INTO playlist_items (playlistId, mediaId, position, title, artist, artworkUri, source, addedAt) " +
+                    "VALUES (1, 'm1', 0, 'Song', NULL, NULL, 'LOCAL', 1)",
+            )
+            raw.version = 2
+        }
+
+        val migrated = Room.databaseBuilder(
+            context,
+            PlaybackDatabase::class.java,
+            "migration_v3_test.db",
+        ).addMigrations(PlaybackMigrations.MIGRATION_2_3).build()
+        try {
+            migrated.openHelper.writableDatabase // force the upgrade
+
+            val row = migrated.playlistDao().observeWithCounts().first()
+                .single { it.playlist.id == 1L }
+            assertThat(row.playlist.name).isEqualTo("Keep me")
+            assertThat(row.playlist.description).isEmpty()
+            assertThat(row.playlist.coverUris).isEmpty()
+            assertThat(row.trackCount).isEqualTo(1)
+            assertThat(
+                migrated.playlistItemDao().observeItems(1).first().single().durationMs,
+            ).isNull()
+        } finally {
+            migrated.close()
+            context.deleteDatabase("migration_v3_test.db")
+        }
+    }
+
     /**
      * Real file migration: hand-build a v1 `playback.db` (the v1 DDL from the
      * exported schema), seed favorites + history, then open through Room with
@@ -315,7 +483,10 @@ class PlaybackDatabaseMigrationTest {
             context,
             PlaybackDatabase::class.java,
             "migration_test.db",
-        ).addMigrations(PlaybackMigrations.MIGRATION_1_2).build()
+        ).addMigrations(
+            PlaybackMigrations.MIGRATION_1_2,
+            PlaybackMigrations.MIGRATION_2_3,
+        ).build()
         try {
             migrated.openHelper.writableDatabase // force the upgrade
 
