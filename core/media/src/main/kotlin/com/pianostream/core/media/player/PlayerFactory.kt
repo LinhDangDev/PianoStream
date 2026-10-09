@@ -53,6 +53,11 @@ object PlayerFactory {
         cacheBudgetBytes: Long,
         videoItagProvider: () -> Int? = { null },
         audioItagProvider: () -> Int? = { null },
+        /** videoId → finished download file, or null. Wired to
+         *  DownloadManager.fileFor in MediaModule: a `stream/` open for a
+         *  downloaded item serves local bytes with zero network, and the
+         *  routing source keeps those bytes out of SimpleCache. */
+        localFileProvider: (videoId: String) -> java.io.File? = { null },
     ): DataSource.Factory {
         val upstreamHttp = OkHttpDataSource.Factory(okHttp.newBuilder().build())
         val localUpstream = DefaultDataSource.Factory(context)
@@ -63,6 +68,7 @@ object PlayerFactory {
             localResolver = localResolver,
             videoItagProvider = videoItagProvider,
             audioItagProvider = audioItagProvider,
+            localFileProvider = localFileProvider,
         )
         val cached = CacheDataSource.Factory()
             .setCache(MediaCache.getInstance(context, cacheBudgetBytes))
@@ -78,11 +84,13 @@ object PlayerFactory {
             localResolver = localResolver,
             videoItagProvider = videoItagProvider,
             audioItagProvider = audioItagProvider,
+            localFileProvider = localFileProvider,
         )
         return DataSource.Factory {
             SchemeRoutingDataSource(
                 cached = cached.createDataSource(),
                 uncached = uncached.createDataSource(),
+                downloadedProvider = { localFileProvider(it) != null },
             )
         }
     }

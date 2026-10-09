@@ -45,6 +45,8 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.AddToQueue
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -721,6 +723,37 @@ fun ExpandingPlayer(
                         label = "Add to queue",
                         onClick = { actionsOpen = false; action() },
                     )
+                }
+                // Offline download row — YouTube-backed items only, so the
+                // row only exists when the host wired onDownload AND the
+                // current item is a stream/video source.
+                if (state.videoCapable) {
+                    actions.onDownload?.let { action ->
+                        val dl = state.downloadState
+                        SheetActionRow(
+                            icon = if (dl == com.pianostream.core.data.downloads.DownloadState.DONE) {
+                                Icons.Filled.DownloadDone
+                            } else {
+                                Icons.Filled.Download
+                            },
+                            tint = if (dl == com.pianostream.core.data.downloads.DownloadState.DONE) {
+                                Vinyl.Gold
+                            } else {
+                                Vinyl.GoldDim
+                            },
+                            label = when (dl) {
+                                com.pianostream.core.data.downloads.DownloadState.DONE ->
+                                    "Remove download"
+                                com.pianostream.core.data.downloads.DownloadState.QUEUED,
+                                com.pianostream.core.data.downloads.DownloadState.DOWNLOADING,
+                                -> "Downloading…"
+                                com.pianostream.core.data.downloads.DownloadState.FAILED ->
+                                    "Retry download"
+                                null -> "Download"
+                            },
+                            onClick = { actionsOpen = false; action() },
+                        )
+                    }
                 }
                 actions.onGoToAlbum?.let { action ->
                     SheetActionRow(

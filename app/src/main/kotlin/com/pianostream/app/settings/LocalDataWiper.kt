@@ -47,11 +47,13 @@ public class LocalDataWiper @Inject constructor(
         runCatching { library.clearAll() }
         // 3. DataStore.
         runCatching { settings.clear() }
-        // 4. Caches.
+        // 4. Caches + downloaded files (the playback.db rows were dropped
+        //    by playback.clearAll above — the bytes live under filesDir).
         listOf(
             File(context.cacheDir, "media3"),
             File(context.cacheDir, "coil"),
             File(context.filesDir, "player_configs.json"),
+            File(context.filesDir, "downloads"),
         ).forEach { f ->
             runCatching {
                 if (f.isDirectory) f.deleteRecursively() else f.delete()

@@ -2,6 +2,8 @@ package com.pianostream.core.data.playback.db
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import com.pianostream.core.data.downloads.DownloadDao
+import com.pianostream.core.data.downloads.DownloadEntity
 import com.pianostream.core.data.playback.db.entity.FavoriteEntity
 import com.pianostream.core.data.playback.db.entity.PlayHistoryEntity
 import com.pianostream.core.data.playback.db.entity.PlaylistEntity
@@ -17,8 +19,9 @@ import com.pianostream.core.data.playback.db.entity.QueueStateEntity
         FavoriteEntity::class,
         PlaylistEntity::class,
         PlaylistItemEntity::class,
+        DownloadEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class PlaybackDatabase : RoomDatabase() {
@@ -28,6 +31,7 @@ abstract class PlaybackDatabase : RoomDatabase() {
     abstract fun playlistDao(): com.pianostream.core.data.playback.db.dao.PlaylistDao
     abstract fun playlistItemDao(): com.pianostream.core.data.playback.db.dao.PlaylistItemDao
     abstract fun maintenanceDao(): com.pianostream.core.data.playback.db.dao.PlaybackMaintenanceDao
+    abstract fun downloadDao(): DownloadDao
     companion object {
         const val NAME = "playback.db"
     }

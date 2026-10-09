@@ -21,9 +21,11 @@ import com.pianostream.app.AppViewModel
 import com.pianostream.app.about.AboutScreen
 import com.pianostream.app.settings.SettingsScreen
 import com.pianostream.app.share.ShareIntents
+import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.data.library.model.Track
 import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.feature.home.HomeScreen
 import com.pianostream.feature.library.LibraryScreen
 import com.pianostream.feature.library.LibraryViewModel
@@ -108,6 +110,7 @@ public fun AppNav(
     var actionsTarget by remember { mutableStateOf<ActionTarget?>(null) }
     var actionsFavorite by remember { mutableStateOf(false) }
     var playlistTarget by remember { mutableStateOf<QueueItem?>(null) }
+    val downloads by viewModel.downloads.collectAsState()
 
     Box(Modifier.fillMaxSize()) {
         NavDisplay(
@@ -199,11 +202,25 @@ public fun AppNav(
                     target.item?.mediaId?.let { viewModel.isFavorite(it) }
                         ?: false
             }
+            // Downloadable iff the row carries a YouTube stream/video id —
+            // local rows have no download meaning (they already are files).
+            val downloadVideoId = target.item?.mediaId
+                ?.takeIf { target.item.source == MediaSource.YOUTUBE }
+                ?.let(PianoStreamUri::parse)
+                ?.let { id ->
+                    when (id) {
+                        is PianoStreamUri.Id.Stream -> id.videoId
+                        is PianoStreamUri.Id.Video -> id.videoId
+                        else -> null
+                    }
+                }
+            val downloadState = downloadVideoId?.let { downloads[it]?.state }
             TrackActionsSheet(
                 title = target.title,
                 subtitle = target.subtitle,
                 artworkUri = target.artworkUri,
                 isFavorite = actionsFavorite,
+                downloadState = downloadState,
                 enabled = buildSet {
                     add(TrackAction.Share)
                     target.artist?.let { add(TrackAction.GoToArtist) }
@@ -213,6 +230,7 @@ public fun AppNav(
                         add(TrackAction.AddToPlaylist)
                         add(TrackAction.AddToQueue)
                     }
+                    if (downloadVideoId != null) add(TrackAction.Download)
                 },
                 onAction = { action ->
                     val item = target.item
@@ -222,6 +240,19 @@ public fun AppNav(
                         TrackAction.AddToPlaylist ->
                             item?.let { playlistTarget = it }
                         TrackAction.AddToQueue -> item?.let { onEnqueue(it) }
+                        TrackAction.Download -> downloadVideoId?.let { vid ->
+                            when (downloadState) {
+                                DownloadState.DONE,
+                                DownloadState.QUEUED,
+                                DownloadState.DOWNLOADING,
+                                -> viewModel.removeDownload(vid)
+                                else -> item?.let {
+                                    viewModel.enqueueDownload(
+                                        vid, it.title, it.artist, it.artworkUri,
+                                    )
+                                }
+                            }
+                        }
                         TrackAction.GoToAlbum -> target.discId?.let { id ->
                             scope.launch {
                                 viewModel.discById(id)?.let { disc ->

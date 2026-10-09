@@ -2,6 +2,7 @@ package com.pianostream.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pianostream.core.data.downloads.DownloadItem
 import com.pianostream.core.data.library.LibraryRepository
 import com.pianostream.core.data.library.model.SearchHit
 import com.pianostream.core.data.playback.PlaybackRepository
@@ -10,6 +11,7 @@ import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.local.scan.LibraryHasher
+import com.pianostream.core.media.downloads.DownloadManager
 import com.pianostream.core.youtube.api.SearchFilter
 import com.pianostream.core.youtube.api.YouTubeClient
 import com.pianostream.core.youtube.api.YouTubeItem
@@ -43,6 +45,7 @@ class SearchViewModel @Inject constructor(
     private val settings: SettingsDataStore,
     private val playbackRepository: PlaybackRepository,
     private val recentSearches: RecentSearchesStore,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
 
     enum class Scope { ALL, LOCAL, YOUTUBE }
@@ -74,6 +77,8 @@ class SearchViewModel @Inject constructor(
         val online: Boolean = true,
         /** mediaIds currently saved to the collection — heart state per row. */
         val favoriteIds: Set<String> = emptySet(),
+        /** videoId → download record — the row icon's state machine. */
+        val downloads: Map<String, DownloadItem> = emptyMap(),
         val typeFilter: TypeFilter = TypeFilter.ALL,
         /** Newest-first recent queries — local data, shown on an empty field. */
         val recentQueries: List<String> = emptyList(),
@@ -105,6 +110,21 @@ class SearchViewModel @Inject constructor(
                 _state.update { it.copy(recentQueries = list) }
             }
         }
+        viewModelScope.launch {
+            downloadManager.downloads.collect { map ->
+                _state.update { it.copy(downloads = map) }
+            }
+        }
+    }
+
+    /** Download icon on a YouTube row — enqueue or retry (failed rows). */
+    fun enqueueDownload(videoId: String, title: String, artist: String?, artworkUri: String?) {
+        downloadManager.enqueue(videoId, title, artist, artworkUri)
+    }
+
+    /** Removes the download (also cancels an in-flight one). */
+    fun removeDownload(videoId: String) {
+        viewModelScope.launch { downloadManager.remove(videoId) }
     }
 
     fun setTypeFilter(filter: TypeFilter) {

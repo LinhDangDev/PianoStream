@@ -105,6 +105,8 @@ public fun AppScaffold(
         },
         // onSleepTimer/onGoToAlbum stay null — ExpandingPlayer renders its
         // own sleep-timer sheet, and a playing item has no discId handle.
+        // onDownload renders only for videoCapable (YouTube) items.
+        onDownload = { viewModel.toggleCurrentDownload() },
     )
 
     Column(Modifier.fillMaxSize().background(Aurora.Bg)) {

@@ -42,6 +42,7 @@ class PlaybackRepositoryImpl @Inject constructor(
     private val playlistDao = db.playlistDao()
     private val playlistItemDao = db.playlistItemDao()
     private val maintenanceDao = db.maintenanceDao()
+    private val downloadDao = db.downloadDao()
 
     // --- queue ----------------------------------------------------------
 
@@ -241,6 +242,9 @@ class PlaybackRepositoryImpl @Inject constructor(
         favoriteDao.deleteAll()
         playlistItemDao.deleteAll()
         playlistDao.deleteAll()
+        // Download records go too — LocalDataWiper drops the files
+        // (filesDir/downloads) in the same pass.
+        downloadDao.deleteAll()
         // Room closes/deletes the physical file (-wal/-shm) via the caller's
         // db.close() + File.delete — the rows are gone either way (CC10).
     }

@@ -6,6 +6,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
+import com.pianostream.core.data.downloads.DownloadRepository
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.local.api.LocalLibraryIndex
@@ -16,6 +17,7 @@ import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.media.audio.ReplayGainAudioProcessor
 import com.pianostream.core.media.cache.MediaCache
 import com.pianostream.core.media.crossfade.CrossfadeController
+import com.pianostream.core.media.downloads.DownloadManager
 import com.pianostream.core.media.local.LocalMediaItemFactory
 import com.pianostream.core.media.player.PlayerFactory
 import com.pianostream.core.media.preload.PreloadPolicy
@@ -59,6 +61,7 @@ object MediaModule {
         okHttp: OkHttpClient,
         videoQualityStore: VideoQualityStore,
         audioQualityStore: AudioQualityStore,
+        downloadManager: DownloadManager,
     ): DefaultMediaSourceFactory {
         val budget = runBlocking { settings.cacheBudgetBytes.first() }
         val itag = runBlocking { settings.preferredItag.first() }
@@ -74,6 +77,9 @@ object MediaModule {
             cacheBudgetBytes = budget,
             videoItagProvider = { videoQualityStore.currentItag },
             audioItagProvider = { audioQualityStore.itag.value },
+            // Offline downloads: a finished file serves `stream/` opens
+            // with zero network; undownloaded items keep resolving live.
+            localFileProvider = downloadManager::fileFor,
         )
         return DefaultMediaSourceFactory(context).setDataSourceFactory(dsFactory)
     }
@@ -83,6 +89,29 @@ object MediaModule {
      * video-only + audio sources; everything else delegates. Primary gets it
      * through the preload-manager builder, the crossfade secondary directly.
      */
+    /**
+     * Offline downloads — resolves via the same StreamResolver as playback
+     * (audio-quality itag included), writes `filesDir/downloads/<id>.bin`,
+     * and backs the [localFileProvider] playback seam above.
+     */
+    @Provides
+    @Singleton
+    fun downloadManager(
+        @ApplicationContext context: Context,
+        resolver: StreamResolver,
+        okHttp: OkHttpClient,
+        downloadRepository: DownloadRepository,
+        audioQualityStore: AudioQualityStore,
+    ): DownloadManager = DownloadManager(
+        context = context,
+        resolver = resolver,
+        okHttp = okHttp,
+        repository = downloadRepository,
+        audioItagProvider = { audioQualityStore.itag.value },
+        // Default Dispatchers.IO scope — NOT mediaScope: its blocking
+        // okhttp execute must never run on the main thread.
+    )
+
     @Provides
     @Singleton
     fun mergedMediaSourceFactory(

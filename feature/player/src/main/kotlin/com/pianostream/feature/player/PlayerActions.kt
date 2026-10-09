@@ -12,4 +12,7 @@ data class PlayerActions(
     val onGoToArtist: (() -> Unit)? = null,
     val onShare: (() -> Unit)? = null,
     val onSleepTimer: (() -> Unit)? = null,
+    /** Download/remove toggle for the current item (YouTube rows only —
+     *  the sheet hides it unless the item is videoCapable). */
+    val onDownload: (() -> Unit)? = null,
 )

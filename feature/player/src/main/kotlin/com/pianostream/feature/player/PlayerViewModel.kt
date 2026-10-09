@@ -4,12 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.pianostream.core.data.downloads.DownloadItem
+import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.media.api.PlaybackController
+import com.pianostream.core.media.downloads.DownloadManager
 import com.pianostream.core.media.lyrics.Lyrics
 import com.pianostream.core.media.lyrics.LyricsQuery
 import com.pianostream.core.media.lyrics.LyricsRepository
@@ -44,6 +47,7 @@ class PlayerViewModel @Inject constructor(
     private val playbackRepository: PlaybackRepository,
     private val videoQualityStore: VideoQualityStore,
     private val lyricsRepository: LyricsRepository,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
 
     data class UiState(
@@ -66,6 +70,10 @@ class PlayerViewModel @Inject constructor(
         val videoQuality: Int? = null,
         /** Current item is saved in the collection (favorites). */
         val isFavorite: Boolean = false,
+        /** videoIds with a finished download — queue rows get a gold dot. */
+        val downloadedIds: Set<String> = emptySet(),
+        /** The current item's download state (null = not downloaded). */
+        val downloadState: DownloadState? = null,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -74,6 +82,7 @@ class PlayerViewModel @Inject constructor(
     private val scope get() = viewModelScope
     private var ticker: Job? = null
     private val favoriteIds = MutableStateFlow<Set<String>>(emptySet())
+    private val downloadsMap = MutableStateFlow<Map<String, DownloadItem>>(emptyMap())
 
     private val _sleepTimer = MutableStateFlow(SleepTimerState())
     val sleepTimer: StateFlow<SleepTimerState> = _sleepTimer.asStateFlow()
@@ -100,6 +109,20 @@ class PlayerViewModel @Inject constructor(
                 // refresh heart state for whatever is playing right now
                 _state.update { st ->
                     st.copy(isFavorite = st.currentItem?.mediaId in favoriteIds.value)
+                }
+            }
+        }
+        scope.launch {
+            downloadManager.downloads.collect { map ->
+                downloadsMap.value = map
+                _state.update { st ->
+                    st.copy(
+                        downloadedIds = map.values
+                            .filter { it.state == DownloadState.DONE }
+                            .mapTo(HashSet()) { it.videoId },
+                        downloadState = st.currentItem?.mediaId
+                            ?.let(::videoIdOf)?.let(map::get)?.state,
+                    )
                 }
             }
         }
@@ -178,6 +201,27 @@ class PlayerViewModel @Inject constructor(
      * `EndOfTrack` pauses when the current track ends (transition to
      * another item, or STATE_ENDED — see [listener]).
      */
+    /**
+     * Player ⋯ "Download" row — toggles the CURRENT item's download:
+     *  queues it when absent/failed, removes it when queued/running/done.
+     */
+    fun toggleCurrentDownload() {
+        val item = _state.value.currentItem ?: return
+        val videoId = videoIdOf(item.mediaId) ?: return
+        when (downloadsMap.value[videoId]?.state) {
+            DownloadState.DONE,
+            DownloadState.QUEUED,
+            DownloadState.DOWNLOADING,
+            -> scope.launch { downloadManager.remove(videoId) }
+            else -> downloadManager.enqueue(
+                videoId = videoId,
+                title = item.mediaMetadata.title?.toString() ?: item.mediaId,
+                artist = item.mediaMetadata.artist?.toString(),
+                artworkUri = item.mediaMetadata.artworkUri?.toString(),
+            )
+        }
+    }
+
     fun setSleepTimer(mode: SleepTimerMode) {
         when (mode) {
             is SleepTimerMode.AfterMinutes -> {
@@ -236,6 +280,8 @@ class PlayerViewModel @Inject constructor(
                 videoCapable = videoIdOf(mediaId) != null,
                 videoMode = mediaId.startsWith(VIDEO_URI_PREFIX),
                 isFavorite = mediaId in favoriteIds.value,
+                downloadState = videoIdOf(mediaId)
+                    ?.let(downloadsMap.value::get)?.state,
             )
         }
     }

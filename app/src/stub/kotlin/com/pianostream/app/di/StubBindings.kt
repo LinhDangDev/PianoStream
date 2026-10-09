@@ -3,6 +3,8 @@ package com.pianostream.app.di
 import com.pianostream.app.fake.FakeLibraryRepository
 import com.pianostream.app.fake.FakePlaybackController
 import com.pianostream.app.fake.FakePlaybackRepository
+import com.pianostream.core.data.downloads.DownloadRepository
+import com.pianostream.core.data.downloads.DownloadRepositoryImpl
 import com.pianostream.core.data.library.LibraryRepository
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.media.api.PlaybackController
@@ -46,4 +48,12 @@ public abstract class StubBindings {
     public abstract fun playbackController(
         impl: FakePlaybackController,
     ): PlaybackController
+
+    // Downloads are real (Room + filesDir) in every flavor — the stub
+    // seam only fakes repositories that talk to SAF/YouTube/network.
+    @Binds
+    @Singleton
+    public abstract fun downloadRepository(
+        impl: DownloadRepositoryImpl,
+    ): DownloadRepository
 }
