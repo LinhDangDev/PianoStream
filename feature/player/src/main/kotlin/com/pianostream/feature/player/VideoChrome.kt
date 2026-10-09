@@ -10,14 +10,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,7 +54,18 @@ import com.pianostream.core.media.video.VideoQualityStore
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-internal fun VideoPanel(player: Player?, modifier: Modifier = Modifier) {
+internal fun VideoPanel(
+    player: Player?,
+    modifier: Modifier = Modifier,
+    onExpand: (() -> Unit)? = null,
+) {
+    // Standalone path: when the host doesn't hoist fullscreen state via
+    // [onExpand], the panel mounts [FullscreenVideo] itself. `surfaceGen`
+    // remounts the panel's PlayerSurface on close so it re-binds the
+    // player's video output (last-attached surface wins in Media3).
+    var selfFullscreen by remember { mutableStateOf(false) }
+    var surfaceGen by remember { mutableStateOf(0) }
+
     Box(modifier, contentAlignment = Alignment.Center) {
         Box(
             Modifier
@@ -62,13 +79,53 @@ internal fun VideoPanel(player: Player?, modifier: Modifier = Modifier) {
                 .border(1.dp, Vinyl.Gold.copy(alpha = 0.22f), RoundedCornerShape(20.dp)),
         ) {
             if (player != null) {
-                PlayerSurface(
-                    player = player,
-                    surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                key(surfaceGen) {
+                    PlayerSurface(
+                        player = player,
+                        surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                // Expand button at the video box's top-right (below the
+                // square slot's quality chip, which floats in the gap
+                // above the 16:9 frame). Charcoal scrim pill, same
+                // chrome as [VideoQualityChip].
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF0F1012).copy(alpha = 0.88f))
+                        .border(
+                            1.dp,
+                            Color.White.copy(alpha = 0.07f),
+                            CircleShape,
+                        )
+                        .clickable(onClickLabel = "Enter fullscreen") {
+                            if (onExpand != null) onExpand() else selfFullscreen = true
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Fullscreen,
+                        contentDescription = "Enter fullscreen",
+                        tint = Vinyl.Gold,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
+    }
+
+    if (selfFullscreen) {
+        FullscreenVideo(
+            player = player,
+            onClose = {
+                selfFullscreen = false
+                surfaceGen += 1
+            },
+        )
     }
 }
 
