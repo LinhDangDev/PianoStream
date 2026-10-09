@@ -11,6 +11,7 @@ import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.local.api.LocalLibraryIndex
 import com.pianostream.core.local.api.LocalTrackWindowSource
 import com.pianostream.core.data.playback.StreamCacheEvictor
+import com.pianostream.core.media.AudioQualityStore
 import com.pianostream.core.media.api.PlaybackController
 import com.pianostream.core.media.audio.ReplayGainAudioProcessor
 import com.pianostream.core.media.cache.MediaCache
@@ -57,6 +58,7 @@ object MediaModule {
         settings: SettingsDataStore,
         okHttp: OkHttpClient,
         videoQualityStore: VideoQualityStore,
+        audioQualityStore: AudioQualityStore,
     ): DefaultMediaSourceFactory {
         val budget = runBlocking { settings.cacheBudgetBytes.first() }
         val itag = runBlocking { settings.preferredItag.first() }
@@ -71,6 +73,9 @@ object MediaModule {
             okHttp = okHttp,
             cacheBudgetBytes = budget,
             videoItagProvider = { videoQualityStore.currentItag },
+            // audioItagProvider = { audioQualityStore.itag.value } — passed
+            // once PlayerFactory.dataSourceFactory forwards the param
+            // (INTEGRATION hook; StreamResolvingDataSource already accepts it).
         )
         return DefaultMediaSourceFactory(context).setDataSourceFactory(dsFactory)
     }

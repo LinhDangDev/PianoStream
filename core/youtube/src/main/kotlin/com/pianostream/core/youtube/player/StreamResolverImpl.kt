@@ -2,6 +2,7 @@ package com.pianostream.core.youtube.player
 
 import android.os.SystemClock
 import com.pianostream.core.data.util.Redact
+import com.pianostream.core.youtube.api.AudioStreamResolver
 import com.pianostream.core.youtube.api.ExtractionException
 import com.pianostream.core.youtube.api.ResolvedStream
 import com.pianostream.core.youtube.api.StreamResolver
@@ -61,7 +62,7 @@ internal class StreamResolverImpl(
      * never touch the network.
      */
     private val playerEndpoint: String? = null,
-) : StreamResolver {
+) : AudioStreamResolver {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -90,6 +91,17 @@ internal class StreamResolverImpl(
         },
         force,
         Kind.VIDEO,
+    )
+
+    override suspend fun resolveAudio(
+        videoId: String,
+        preferredItag: Int?,
+        force: Boolean,
+    ): ResolvedStream = resolveKinded(
+        videoId,
+        preferredItag ?: FormatPicker.ALLOWED_ITAGS.first(),
+        force,
+        Kind.AUDIO,
     )
 
     private suspend fun resolveKinded(
