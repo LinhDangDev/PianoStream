@@ -46,6 +46,13 @@ public class SettingsViewModel @Inject constructor(
         val remoteConfigEnabled: Boolean = false,
         val libraryRootTreeUri: String? = null,
         val libraryLastScanAt: Long? = null,
+        /** YouTube audio quality tier — "AUTO"/"LOW"/"NORMAL"/"HIGH". */
+        val audioItagTier: String = SettingsDataStore.DEFAULT_AUDIO_ITAG_TIER,
+        val monoAudio: Boolean = false,
+        val gapless: Boolean = true,
+        val normalizeVolume: Boolean = false,
+        /** Settings-search query — transient, never persisted. */
+        val searchQuery: String = "",
         /** Present the pinned-host consent dialog for remote config (F2/F15). */
         val confirmRemoteConfig: Boolean = false,
         /** First delete-all confirm; second tap inside dialog commits (R2). */
@@ -61,20 +68,22 @@ public class SettingsViewModel @Inject constructor(
 
     private val dialogs = MutableStateFlow(DialogState())
 
+    /** Settings-search query — in-memory only (a screen concern, not a pref). */
+    private val searchQuery = MutableStateFlow("")
+
     public val state: StateFlow<UiState> = combine(
-        settings.themeMode,
-        settings.dynamicColor,
-        settings.replayGainMode,
-        settings.preampDb,
-        settings.crossfadeMs,
-        settings.taskRemovalPolicy,
-        settings.preferredItag,
-        settings.cacheBudgetBytes,
-        settings.localOnlySearch,
-        settings.sendSearchSuggestions,
-    ) { v: Array<Any?> ->
-        v
-    }.combine(
+        combine(
+            settings.themeMode,
+            settings.dynamicColor,
+            settings.replayGainMode,
+            settings.preampDb,
+            settings.crossfadeMs,
+            settings.taskRemovalPolicy,
+            settings.preferredItag,
+            settings.cacheBudgetBytes,
+            settings.localOnlySearch,
+            settings.sendSearchSuggestions,
+        ) { v: Array<Any?> -> v },
         combine(
             settings.updaterEnabled,
             settings.remoteConfigEnabled,
@@ -82,7 +91,14 @@ public class SettingsViewModel @Inject constructor(
             settings.libraryLastScanAt,
             dialogs,
         ) { v: Array<Any?> -> v },
-    ) { a: Array<Any?>, b: Array<Any?> ->
+        combine(
+            settings.audioItagTier,
+            settings.monoAudio,
+            settings.gapless,
+            settings.normalizeVolume,
+            searchQuery,
+        ) { v: Array<Any?> -> v },
+    ) { a: Array<Any?>, b: Array<Any?>, c: Array<Any?> ->
         UiState(
             themeMode = a[0] as ThemeMode,
             dynamicColor = a[1] as Boolean,
@@ -101,6 +117,11 @@ public class SettingsViewModel @Inject constructor(
             confirmRemoteConfig = (b[4] as DialogState).remoteConfig,
             confirmDeleteAll = (b[4] as DialogState).deleteAll,
             deleteAllRunning = (b[4] as DialogState).wiping,
+            audioItagTier = c[0] as String,
+            monoAudio = c[1] as Boolean,
+            gapless = c[2] as Boolean,
+            normalizeVolume = c[3] as Boolean,
+            searchQuery = c[4] as String,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, UiState())
 
@@ -132,6 +153,28 @@ public class SettingsViewModel @Inject constructor(
 
     public fun setPreferredItag(itag: Int) {
         viewModelScope.launch { settings.setPreferredItag(itag) }
+    }
+
+    /** YouTube audio quality tier — "AUTO"/"LOW"/"NORMAL"/"HIGH". */
+    public fun setAudioItagTier(tier: String) {
+        viewModelScope.launch { settings.setAudioItagTier(tier) }
+    }
+
+    public fun setMonoAudio(enabled: Boolean) {
+        viewModelScope.launch { settings.setMonoAudio(enabled) }
+    }
+
+    public fun setGapless(enabled: Boolean) {
+        viewModelScope.launch { settings.setGapless(enabled) }
+    }
+
+    public fun setNormalizeVolume(enabled: Boolean) {
+        viewModelScope.launch { settings.setNormalizeVolume(enabled) }
+    }
+
+    /** Live settings-search query — transient VM state, never persisted. */
+    public fun setSearchQuery(query: String) {
+        searchQuery.value = query
     }
 
     // Search & network

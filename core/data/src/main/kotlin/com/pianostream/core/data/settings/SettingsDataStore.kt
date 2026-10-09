@@ -74,6 +74,15 @@ public class SettingsDataStore internal constructor(
         public const val DEFAULT_LOCAL_ONLY_SEARCH: Boolean = false
         public const val DEFAULT_SEND_SEARCH_SUGGESTIONS: Boolean = false
 
+        /**
+         * Streaming/playback keys `:core:media` reads BY NAME — the exact
+         * preference key strings are an integration contract; do not rename.
+         */
+        public const val DEFAULT_AUDIO_ITAG_TIER: String = "AUTO"
+        public const val DEFAULT_MONO_AUDIO: Boolean = false
+        public const val DEFAULT_GAPLESS: Boolean = true
+        public const val DEFAULT_NORMALIZE_VOLUME: Boolean = false
+
         private val KEY_REPLAY_GAIN_MODE = stringPreferencesKey("replayGainMode")
         private val KEY_PREAMP_DB = doublePreferencesKey("preampDb")
         private val KEY_CACHE_BUDGET_BYTES = longPreferencesKey("cacheBudgetBytes")
@@ -92,6 +101,10 @@ public class SettingsDataStore internal constructor(
         private val KEY_LOCAL_ONLY_SEARCH = booleanPreferencesKey("localOnlySearch")
         private val KEY_SEND_SEARCH_SUGGESTIONS =
             booleanPreferencesKey("sendSearchSuggestions")
+        private val KEY_AUDIO_ITAG_TIER = stringPreferencesKey("audioItagTier")
+        private val KEY_MONO_AUDIO = booleanPreferencesKey("monoAudio")
+        private val KEY_GAPLESS = booleanPreferencesKey("gapless")
+        private val KEY_NORMALIZE_VOLUME = booleanPreferencesKey("normalizeVolume")
 
         private val Context.settingsStore by preferencesDataStore(STORE_NAME)
 
@@ -279,6 +292,52 @@ public class SettingsDataStore internal constructor(
 
     public suspend fun setSendSearchSuggestions(enabled: Boolean) {
         store.edit { it[KEY_SEND_SEARCH_SUGGESTIONS] = enabled }
+    }
+
+    // --- streaming / playback -------------------------------------------------
+
+    /**
+     * `audioItagTier(AUTO|LOW|NORMAL|HIGH)`, default AUTO — the YouTube audio
+     * quality tier picked in Settings (`LOW` ~48 kbps, `NORMAL` ~128 kbps,
+     * `HIGH` ~160 kbps). `:core:media`'s audio ladder maps the tier onto
+     * concrete itags at resolve time; AUTO means the allow-list default.
+     */
+    public val audioItagTier: Flow<String> =
+        store.data.map { it[KEY_AUDIO_ITAG_TIER] ?: DEFAULT_AUDIO_ITAG_TIER }
+
+    public suspend fun setAudioItagTier(tier: String) {
+        store.edit { it[KEY_AUDIO_ITAG_TIER] = tier }
+    }
+
+    /** `monoAudio`, default false — downmix stereo to mono (engine-side). */
+    public val monoAudio: Flow<Boolean> =
+        store.data.map { it[KEY_MONO_AUDIO] ?: DEFAULT_MONO_AUDIO }
+
+    public suspend fun setMonoAudio(enabled: Boolean) {
+        store.edit { it[KEY_MONO_AUDIO] = enabled }
+    }
+
+    /**
+     * `gapless`, default true — prefer gapless transitions between consecutive
+     * queue items when the engine supports it.
+     */
+    public val gapless: Flow<Boolean> =
+        store.data.map { it[KEY_GAPLESS] ?: DEFAULT_GAPLESS }
+
+    public suspend fun setGapless(enabled: Boolean) {
+        store.edit { it[KEY_GAPLESS] = enabled }
+    }
+
+    /**
+     * `normalizeVolume`, default false — loudness normalization across tracks
+     * (distinct from ReplayGain preamp). Stored-only until `:core:media`
+     * consumes the key.
+     */
+    public val normalizeVolume: Flow<Boolean> =
+        store.data.map { it[KEY_NORMALIZE_VOLUME] ?: DEFAULT_NORMALIZE_VOLUME }
+
+    public suspend fun setNormalizeVolume(enabled: Boolean) {
+        store.edit { it[KEY_NORMALIZE_VOLUME] = enabled }
     }
 
     /**
