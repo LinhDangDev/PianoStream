@@ -15,6 +15,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -38,7 +40,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.AddToQueue
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -46,8 +52,10 @@ import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -116,6 +124,7 @@ fun ExpandingPlayer(
     onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = hiltViewModel(),
+    actions: PlayerActions = PlayerActions(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.connect() }
@@ -586,16 +595,17 @@ fun ExpandingPlayer(
                             )
                         }
 
-                        // Accessory strip below transport (Spotify's devices /
-                        // share / queue row) — queue is the only one this app
-                        // has, pinned to the right edge like the reference.
+                        // Accessory strip below transport (Spotify/Apple
+                        // Music's near-bottom row): speaker + thin volume
+                        // slider on the left, queue pinned to the right edge.
                         Row(
-                            horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 10.dp, start = 24.dp, end = 24.dp),
                         ) {
+                            VolumeRow(Modifier.weight(1f))
+                            Spacer(Modifier.width(14.dp))
                             NeuButton(
                                 icon = Icons.AutoMirrored.Filled.QueueMusic,
                                 contentDescription = "Open play queue",
@@ -663,53 +673,106 @@ fun ExpandingPlayer(
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(bottom = 32.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            actionsOpen = false
-                            queueOpen = true
-                        }
-                        .padding(horizontal = 24.dp, vertical = 18.dp),
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = null,
+                SheetActionRow(
+                    icon = Icons.AutoMirrored.Filled.QueueMusic,
+                    tint = Vinyl.GoldDim,
+                    label = "Open play queue",
+                    onClick = {
+                        actionsOpen = false
+                        queueOpen = true
+                    },
+                )
+                SheetActionRow(
+                    icon = if (state.isFavorite) {
+                        Icons.Filled.Favorite
+                    } else Icons.Filled.FavoriteBorder,
+                    tint = if (state.isFavorite) Vinyl.Gold else Vinyl.GoldDim,
+                    label = if (state.isFavorite) {
+                        "Remove from collection"
+                    } else "Save to collection",
+                    onClick = viewModel::toggleFavorite,
+                )
+                // Spotify "..." sheet entries — each row only exists when the
+                // host wired its callback through PlayerActions.
+                actions.onAddToPlaylist?.let { action ->
+                    SheetActionRow(
+                        icon = Icons.AutoMirrored.Filled.PlaylistAdd,
                         tint = Vinyl.GoldDim,
-                        modifier = Modifier.size(22.dp),
+                        label = "Add to playlist",
+                        onClick = { actionsOpen = false; action() },
                     )
-                    Spacer(Modifier.width(16.dp))
-                    Text("Open play queue", color = Aurora.TextPrimary, fontSize = 16.sp)
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.toggleFavorite() }
-                        .padding(horizontal = 24.dp, vertical = 18.dp),
-                ) {
-                    Icon(
-                        if (state.isFavorite) {
-                            Icons.Filled.Favorite
-                        } else Icons.Filled.FavoriteBorder,
-                        contentDescription = null,
-                        tint = if (state.isFavorite) Vinyl.Gold else Vinyl.GoldDim,
-                        modifier = Modifier.size(22.dp),
+                actions.onAddToQueue?.let { action ->
+                    SheetActionRow(
+                        icon = Icons.Filled.AddToQueue,
+                        tint = Vinyl.GoldDim,
+                        label = "Add to queue",
+                        onClick = { actionsOpen = false; action() },
                     )
-                    Spacer(Modifier.width(16.dp))
-                    Text(
-                        if (state.isFavorite) {
-                            "Remove from collection"
-                        } else "Save to collection",
-                        color = Aurora.TextPrimary,
-                        fontSize = 16.sp,
+                }
+                actions.onGoToAlbum?.let { action ->
+                    SheetActionRow(
+                        icon = Icons.Filled.Album,
+                        tint = Vinyl.GoldDim,
+                        label = "Go to album",
+                        onClick = { actionsOpen = false; action() },
+                    )
+                }
+                actions.onGoToArtist?.let { action ->
+                    SheetActionRow(
+                        icon = Icons.Filled.Person,
+                        tint = Vinyl.GoldDim,
+                        label = "Go to artist",
+                        onClick = { actionsOpen = false; action() },
+                    )
+                }
+                actions.onShare?.let { action ->
+                    SheetActionRow(
+                        icon = Icons.Filled.Share,
+                        tint = Vinyl.GoldDim,
+                        label = "Share",
+                        onClick = { actionsOpen = false; action() },
+                    )
+                }
+                actions.onSleepTimer?.let { action ->
+                    SheetActionRow(
+                        icon = Icons.Filled.Bedtime,
+                        tint = Vinyl.GoldDim,
+                        label = "Sleep timer",
+                        onClick = { actionsOpen = false; action() },
                     )
                 }
             }
         }
+    }
+}
+
+/** One row of the "..." actions sheet: icon + label, full-width tap target. */
+@Composable
+private fun SheetActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 18.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(label, color = Aurora.TextPrimary, fontSize = 16.sp)
     }
 }
 

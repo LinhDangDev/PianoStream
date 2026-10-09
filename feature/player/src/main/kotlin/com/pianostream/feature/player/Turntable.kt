@@ -1,8 +1,13 @@
 package com.pianostream.feature.player
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -305,40 +310,55 @@ internal fun VinylLabel(
             },
         contentAlignment = Alignment.Center,
     ) {
-        if (artworkUri != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(artworkUri).build(),
-                contentDescription = "Artwork for $title",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Canvas(Modifier.fillMaxSize()) {
-                val r = size.minDimension / 2f
-                drawCircle(Vinyl.Gold.copy(alpha = 0.45f), r * 0.86f, style = Stroke(r * 0.012f))
-                drawCircle(Vinyl.Gold.copy(alpha = 0.25f), r * 0.80f, style = Stroke(r * 0.008f))
-            }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            ) {
-                Text(
-                    "MUSIC",
-                    color = Vinyl.Gold,
-                    fontSize = 7.sp,
-                    letterSpacing = 2.sp,
-                    fontWeight = FontWeight.SemiBold,
+        // Track change: the new label art fades + scales in over the old
+        // one (~250ms, the Now Playing spec's micro-animation).
+        AnimatedContent(
+            targetState = artworkUri to title,
+            transitionSpec = {
+                (fadeIn(tween(250)) + scaleIn(tween(250), initialScale = 0.9f))
+                    .togetherWith(fadeOut(tween(250)))
+            },
+            label = "labelArt",
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) { (uri, labelTitle) ->
+            if (uri != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(uri).build(),
+                    contentDescription = "Artwork for $labelTitle",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
                 )
-                Text(
-                    title,
-                    color = Color(0xFFF6E7D6),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 14.dp),
-                )
+            } else {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val r = size.minDimension / 2f
+                        drawCircle(Vinyl.Gold.copy(alpha = 0.45f), r * 0.86f, style = Stroke(r * 0.012f))
+                        drawCircle(Vinyl.Gold.copy(alpha = 0.25f), r * 0.80f, style = Stroke(r * 0.008f))
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    ) {
+                        Text(
+                            "MUSIC",
+                            color = Vinyl.Gold,
+                            fontSize = 7.sp,
+                            letterSpacing = 2.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            labelTitle,
+                            color = Color(0xFFF6E7D6),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp, bottom = 14.dp),
+                        )
+                    }
+                }
             }
         }
     }
@@ -365,17 +385,19 @@ internal fun MiniVinyl(
     }
 }
 
-/** Inset groove slider with gold fill and a ringed knob; tap or drag to seek. */
+/** Inset groove slider with gold fill and a ringed knob; tap or drag to seek.
+ *  `thin` renders the slimmer track/knob used for the volume row. */
 @Composable
 internal fun GoldSlider(
     fraction: Float,
     onChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    thin: Boolean = false,
 ) {
     Canvas(
         modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .height(if (thin) 20.dp else 28.dp)
             .pointerInput(Unit) {
                 detectTapGestures { o -> onChange((o.x / size.width).coerceIn(0f, 1f)) }
             }
@@ -387,8 +409,8 @@ internal fun GoldSlider(
             },
     ) {
         val f = fraction.coerceIn(0f, 1f)
-        val knobR = 9.dp.toPx()
-        val h = 6.dp.toPx()
+        val knobR = (if (thin) 6.dp else 9.dp).toPx()
+        val h = (if (thin) 3.5.dp else 6.dp).toPx()
         val left = knobR
         val width = size.width - knobR * 2
         val top = (size.height - h) / 2f
