@@ -42,12 +42,16 @@ class SearchViewModel @Inject constructor(
     private val youTubeClient: YouTubeClient,
     private val settings: SettingsDataStore,
     private val playbackRepository: PlaybackRepository,
+    private val recentSearches: RecentSearchesStore,
 ) : ViewModel() {
 
     enum class Scope { ALL, LOCAL, YOUTUBE }
 
+    /** Second chip row — filters rendered sections/rows by result kind. */
+    enum class TypeFilter { ALL, SONGS, VIDEOS, ARTISTS, ALBUMS, PLAYLISTS }
+
     data class ResultRow(
-        val mediaId: String,
+        val mediaId: String?,
         val title: String,
         val subtitle: String?,
         val artworkUri: String?,
@@ -70,6 +74,9 @@ class SearchViewModel @Inject constructor(
         val online: Boolean = true,
         /** mediaIds currently saved to the collection — heart state per row. */
         val favoriteIds: Set<String> = emptySet(),
+        val typeFilter: TypeFilter = TypeFilter.ALL,
+        /** Newest-first recent queries — local data, shown on an empty field. */
+        val recentQueries: List<String> = emptyList(),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -93,6 +100,25 @@ class SearchViewModel @Inject constructor(
                 _state.update { it.copy(favoriteIds = favs.mapTo(HashSet()) { f -> f.mediaId }) }
             }
         }
+        viewModelScope.launch {
+            recentSearches.recent.collect { list ->
+                _state.update { it.copy(recentQueries = list) }
+            }
+        }
+    }
+
+    fun setTypeFilter(filter: TypeFilter) {
+        _state.update { it.copy(typeFilter = filter) }
+    }
+
+    /** Trailing ✕ on a recent-searches row — drops just that entry. */
+    fun removeRecent(query: String) {
+        viewModelScope.launch { recentSearches.remove(query) }
+    }
+
+    /** "Clear all" on the recent-searches section header. */
+    fun clearRecents() {
+        viewModelScope.launch { recentSearches.clear() }
     }
 
     /**
@@ -197,7 +223,13 @@ class SearchViewModel @Inject constructor(
             val link = extractYoutubeLink(query)
             val optedIn = s.youtubeOptedIn || link != null
             if (link != null) _state.update { it.copy(youtubeOptedIn = true) }
-            if (!localOnly && optedIn && s.scope != Scope.LOCAL) {
+            val canYoutube = !localOnly && optedIn && s.scope != Scope.LOCAL
+            // Record on submit. A pasted link is recorded after resolution
+            // under the resolved title; everywhere else the raw input stands.
+            if (link == null || !canYoutube) {
+                recentSearches.record(query)
+            }
+            if (canYoutube) {
                 runCatching {
                     when (link) {
                         is YoutubeLink.Playlist ->
@@ -218,6 +250,11 @@ class SearchViewModel @Inject constructor(
                             youtubeError = false,
                         )
                     }
+                    if (link != null) {
+                        val resolved = page.title
+                            ?: page.sections.firstOrNull()?.items?.firstOrNull()?.title
+                        recentSearches.record(resolved ?: query)
+                    }
                 }.onFailure {
                     // Silent failure read as "No results" — surface a flag so
                     // the section can say the call failed, not that YouTube
@@ -227,6 +264,7 @@ class SearchViewModel @Inject constructor(
                         "YouTube search failed: ${it.javaClass.simpleName}: ${it.message}",
                     )
                     _state.update { s2 -> s2.copy(youtubeItems = emptyList(), youtubeError = true) }
+                    if (link != null) recentSearches.record(query)
                 }
                 if (suggestionsOn && s.scope == Scope.YOUTUBE) {
                     runCatching { youTubeClient.suggestions(query) }

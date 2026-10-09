@@ -1,6 +1,7 @@
 package com.pianostream.feature.search
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,19 +12,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -49,11 +50,18 @@ import com.pianostream.core.designsystem.component.SectionHeader
 import com.pianostream.core.designsystem.component.TrackRow
 import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.theme.Aurora
+import com.pianostream.core.youtube.api.YouTubeItem
 
 /**
- * Search — debounced input, scope chips (All / This device / YouTube),
- * suggestions only while `sendSearchSuggestions` + YouTube scope, local
- * results + a YouTube section hidden behind the first-run disclosure (F12).
+ * Search — debounced input, scope chips (All / This device / YouTube) plus a
+ * second chip row filtering results by kind (All / Songs / Videos / Artists /
+ * Albums / Playlists). An empty field shows recent searches; results render
+ * Spotify-style — a "Top result" hero then "This device" and per-kind YouTube
+ * sections capped at four rows with "See all" applying the kind's chip.
+ * Suggestions only while `sendSearchSuggestions` + YouTube scope; the YouTube
+ * section stays hidden behind the first-run disclosure (F12). The trailing
+ * "…" on each row is the [onActions] mount — the integrator hangs the
+ * track-actions sheet on it.
  */
 @Composable
 fun SearchScreen(
@@ -61,6 +69,8 @@ fun SearchScreen(
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
     /** Append one row to the end of the current queue ("add to queue"). */
     onEnqueue: (QueueItem) -> Unit,
+    /** Row "…" menu slot — rendered only when provided (INTEGRATION). */
+    onActions: ((SearchViewModel.ResultRow) -> Unit)? = null,
     modifier: Modifier = Modifier,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
@@ -118,6 +128,29 @@ fun SearchScreen(
             }
         }
 
+        // Kind chips — filter the rendered sections and rows by result type.
+        // Six chips overflow portrait width, so the row scrolls.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+        ) {
+            for (filter in SearchViewModel.TypeFilter.entries) {
+                FilterChip(
+                    selected = state.typeFilter == filter,
+                    onClick = { viewModel.setTypeFilter(filter) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = Color(0xFF1E1F23),
+                        labelColor = Aurora.TextSecondary,
+                        selectedContainerColor = Vinyl.Gold.copy(alpha = 0.18f),
+                        selectedLabelColor = Vinyl.Gold,
+                    ),
+                    label = { Text(filter.label()) },
+                )
+            }
+        }
+
         if (state.suggestions.isNotEmpty()) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -137,23 +170,93 @@ fun SearchScreen(
             }
         }
 
+        // Rows without kind info (local hits) count as Songs under the filter.
+        val visibleLocal = if (state.typeFilter == SearchViewModel.TypeFilter.ALL ||
+            state.typeFilter == SearchViewModel.TypeFilter.SONGS
+        ) {
+            state.localHits
+        } else {
+            emptyList()
+        }
+        val visibleYoutube = state.youtubeItems.filter { it.kind.matches(state.typeFilter) }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 96.dp),
         ) {
-            if (state.localHits.isEmpty() && state.youtubeItems.isEmpty() &&
+            // Recent searches — local data, allowed regardless of localOnly.
+            if (state.query.isBlank() && state.recentQueries.isNotEmpty()) {
+                item(key = "recents-header") {
+                    ResultSectionHeader(
+                        title = "Recent searches",
+                        actionLabel = "Clear all",
+                        onAction = viewModel::clearRecents,
+                    )
+                }
+                items(state.recentQueries, key = { "recent:$it" }) { recent ->
+                    RecentSearchRow(
+                        query = recent,
+                        onClick = { viewModel.onQueryChanged(recent) },
+                        onRemove = { viewModel.removeRecent(recent) },
+                    )
+                }
+            }
+
+            if (visibleLocal.isEmpty() && visibleYoutube.isEmpty() &&
                 state.query.isNotBlank() && !state.searching
             ) {
                 item {
                     EmptyState(
                         title = "No results",
-                        body = "Nothing in your library matches “${state.query}”.",
+                        body = if (state.typeFilter == SearchViewModel.TypeFilter.ALL) {
+                            "Nothing in your library matches “${state.query}”."
+                        } else {
+                            "No ${state.typeFilter.label()} results for “${state.query}”."
+                        },
                     )
                 }
             }
-            if (state.localHits.isNotEmpty()) {
+
+            // "Top result" hero — the first result overall (device first).
+            if (state.typeFilter == SearchViewModel.TypeFilter.ALL) {
+                val topLocal = visibleLocal.firstOrNull()
+                val topYoutube = visibleYoutube.firstOrNull()
+                if (topLocal != null || topYoutube != null) {
+                    item { SectionHeader("Top result") }
+                    item(key = "top-result") {
+                        when {
+                            topLocal != null -> TopResultCard(
+                                title = topLocal.title,
+                                subtitle = topLocal.snippet,
+                                typeLabel = "Song",
+                                artworkUri = null,
+                                onClick = {
+                                    scope.launch {
+                                        viewModel.mediaIdFor(topLocal)?.let { mediaId ->
+                                            onPlayQueue(listOf(topLocal.toQueueItem(mediaId)), 0)
+                                        }
+                                    }
+                                },
+                            )
+                            topYoutube != null -> TopResultCard(
+                                title = topYoutube.title,
+                                subtitle = topYoutube.subtitle,
+                                typeLabel = topYoutube.kind.singularLabel(),
+                                artworkUri = topYoutube.artworkUri,
+                                onClick = {
+                                    topYoutube.videoId?.let { vid ->
+                                        onPlayQueue(listOf(topYoutube.toQueueItem(vid)), 0)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (visibleLocal.isNotEmpty()) {
                 item { SectionHeader("This device") }
-                items(state.localHits, key = { it.trackId }) { hit ->
+                items(visibleLocal, key = { "local:${it.trackId}" }) { hit ->
                     // Resolve the row's mediaId once so the heart can show
                     // saved state and toggle the same id the queue plays.
                     val hitMediaId by produceState<String?>(initialValue = null, hit.trackId) {
@@ -206,6 +309,28 @@ fun SearchScreen(
                                             }
                                         },
                                 )
+                                if (onActions != null) {
+                                    Icon(
+                                        imageVector = Icons.Filled.MoreVert,
+                                        contentDescription = "More actions",
+                                        tint = Vinyl.GoldDim,
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clickable {
+                                                onActions(
+                                                    SearchViewModel.ResultRow(
+                                                        mediaId = hitMediaId,
+                                                        title = hit.title,
+                                                        subtitle = hit.snippet,
+                                                        artworkUri = null,
+                                                        durationMs = null,
+                                                        local = true,
+                                                        error = null,
+                                                    ),
+                                                )
+                                            },
+                                    )
+                                }
                             }
                         },
                     )
@@ -241,56 +366,104 @@ fun SearchScreen(
                             )
                         }
                     }
-                    items(state.youtubeItems, key = { it.videoId ?: it.title }) { item ->
-                        val favMediaId = item.videoId?.let(PianoStreamUri::stream)
-                        TrackRow(
-                            title = item.title,
-                            subtitle = item.subtitle,
-                            artworkUri = item.artworkUri,
-                            durationMs = item.durationMs,
-                            onClick = {
-                                item.videoId?.let { vid ->
-                                    onPlayQueue(listOf(item.toQueueItem(vid)), 0)
-                                }
-                            },
-                            trailing = {
-                                if (favMediaId != null) {
+                    val sections = listOf(
+                        YouTubeItem.Kind.TRACK,
+                        YouTubeItem.Kind.VIDEO,
+                        YouTubeItem.Kind.ARTIST,
+                        YouTubeItem.Kind.ALBUM,
+                        YouTubeItem.Kind.PLAYLIST,
+                    )
+                    for (kind in sections) {
+                        val kindItems = visibleYoutube.filter { it.kind == kind }
+                        if (kindItems.isEmpty()) continue
+                        val allView = state.typeFilter == SearchViewModel.TypeFilter.ALL
+                        val rows = if (allView) kindItems.take(4) else kindItems
+                        item(key = "section-${kind.name}") {
+                            ResultSectionHeader(
+                                title = when (kind) {
+                                    YouTubeItem.Kind.TRACK -> "Songs"
+                                    YouTubeItem.Kind.VIDEO -> "Videos"
+                                    YouTubeItem.Kind.ARTIST -> "Artists"
+                                    YouTubeItem.Kind.ALBUM -> "Albums"
+                                    YouTubeItem.Kind.PLAYLIST -> "Playlists"
+                                },
+                                actionLabel = if (allView && kindItems.size > 4) "See all" else null,
+                                onAction = { viewModel.setTypeFilter(kind.toTypeFilter()) },
+                            )
+                        }
+                        items(rows, key = { "yt:${kind.name}:${it.videoId ?: it.title}" }) { item ->
+                            val favMediaId = item.videoId?.let(PianoStreamUri::stream)
+                            TrackRow(
+                                title = item.title,
+                                subtitle = item.subtitle,
+                                artworkUri = item.artworkUri,
+                                durationMs = item.durationMs,
+                                onClick = {
+                                    item.videoId?.let { vid ->
+                                        onPlayQueue(listOf(item.toQueueItem(vid)), 0)
+                                    }
+                                },
+                                trailing = {
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                                            contentDescription = "Add to queue",
-                                            tint = Vinyl.GoldDim,
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .clickable {
-                                                    item.videoId?.let { vid ->
-                                                        onEnqueue(item.toQueueItem(vid))
-                                                        Toast.makeText(
-                                                            context, "Added to queue", Toast.LENGTH_SHORT,
-                                                        ).show()
-                                                    }
-                                                },
-                                        )
-                                        val fav = favMediaId in state.favoriteIds
-                                        Icon(
-                                            imageVector = if (fav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                            contentDescription = if (fav) "Remove from collection" else "Save to collection",
-                                            tint = if (fav) Vinyl.Gold else Vinyl.GoldDim,
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .clickable {
-                                                    viewModel.toggleFavorite(
-                                                        favMediaId, item.title, item.subtitle, item.artworkUri, MediaSource.YOUTUBE,
-                                                    )
-                                                },
-                                        )
+                                        if (favMediaId != null) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                                contentDescription = "Add to queue",
+                                                tint = Vinyl.GoldDim,
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .clickable {
+                                                        item.videoId?.let { vid ->
+                                                            onEnqueue(item.toQueueItem(vid))
+                                                            Toast.makeText(
+                                                                context, "Added to queue", Toast.LENGTH_SHORT,
+                                                            ).show()
+                                                        }
+                                                    },
+                                            )
+                                            val fav = favMediaId in state.favoriteIds
+                                            Icon(
+                                                imageVector = if (fav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                                contentDescription = if (fav) "Remove from collection" else "Save to collection",
+                                                tint = if (fav) Vinyl.Gold else Vinyl.GoldDim,
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .clickable {
+                                                        viewModel.toggleFavorite(
+                                                            favMediaId, item.title, item.subtitle, item.artworkUri, MediaSource.YOUTUBE,
+                                                        )
+                                                    },
+                                            )
+                                        }
+                                        if (onActions != null) {
+                                            Icon(
+                                                imageVector = Icons.Filled.MoreVert,
+                                                contentDescription = "More actions",
+                                                tint = Vinyl.GoldDim,
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .clickable {
+                                                        onActions(
+                                                            SearchViewModel.ResultRow(
+                                                                mediaId = favMediaId,
+                                                                title = item.title,
+                                                                subtitle = item.subtitle,
+                                                                artworkUri = item.artworkUri,
+                                                                durationMs = item.durationMs,
+                                                                local = false,
+                                                                error = null,
+                                                            ),
+                                                        )
+                                                    },
+                                            )
+                                        }
                                     }
-                                }
-                            },
-                        )
+                                },
+                            )
+                        }
                     }
                 }
             } else if (state.scope == SearchViewModel.Scope.YOUTUBE) {
@@ -319,7 +492,7 @@ private fun SearchHit.toQueueItem(mediaId: String): QueueItem = QueueItem(
     addedAt = System.currentTimeMillis(),
 )
 
-private fun com.pianostream.core.youtube.api.YouTubeItem.toQueueItem(
+private fun YouTubeItem.toQueueItem(
     videoId: String,
 ): QueueItem = QueueItem(
     position = 0,
