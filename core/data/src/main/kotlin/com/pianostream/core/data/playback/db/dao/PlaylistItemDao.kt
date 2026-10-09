@@ -17,6 +17,10 @@ interface PlaylistItemDao {
     @Query("SELECT * FROM playlist_items WHERE playlistId = :playlistId ORDER BY position ASC")
     suspend fun snapshot(playlistId: Long): List<PlaylistItemEntity>
 
+    /** Every row across playlists — backup/export reads (no ordering contract). */
+    @Query("SELECT * FROM playlist_items")
+    suspend fun snapshotAll(): List<PlaylistItemEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: PlaylistItemEntity)
 

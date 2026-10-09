@@ -1,8 +1,10 @@
 package com.pianostream.app.settings
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pianostream.BuildConfig
+import com.pianostream.core.data.backup.BackupManager
 import com.pianostream.core.data.settings.SettingsDataStore
 import com.pianostream.core.data.settings.SettingsDataStore.ReplayGainMode
 import com.pianostream.core.data.settings.SettingsDataStore.TaskRemovalPolicy
@@ -11,6 +13,7 @@ import com.pianostream.core.data.downloads.DownloadItem
 import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.media.downloads.DownloadManager
+import com.pianostream.feature.search.RecentSearchesStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +36,8 @@ public class SettingsViewModel @Inject constructor(
     private val playback: PlaybackRepository,
     private val wiper: LocalDataWiper,
     private val downloadManager: DownloadManager,
+    private val backupManager: BackupManager,
+    private val recentSearches: RecentSearchesStore,
 ) : ViewModel() {
 
     public data class UiState(
@@ -67,6 +72,11 @@ public class SettingsViewModel @Inject constructor(
         val downloadBytes: Long = 0L,
         /** "Clear all downloads" confirm dialog. */
         val confirmClearDownloads: Boolean = false,
+        /** Backup & restore card state (transient — never persisted). */
+        val includeBackupDownloads: Boolean = true,
+        val backupRunning: Boolean = false,
+        /** Progress ("Exporting…") or the last result line. */
+        val backupStatus: String? = null,
     )
 
     private data class DialogState(
@@ -76,7 +86,15 @@ public class SettingsViewModel @Inject constructor(
         val clearDownloads: Boolean = false,
     )
 
+    private data class BackupState(
+        val includeDownloads: Boolean = true,
+        val running: Boolean = false,
+        val status: String? = null,
+    )
+
     private val dialogs = MutableStateFlow(DialogState())
+
+    private val backup = MutableStateFlow(BackupState())
 
     /** Settings-search query — in-memory only (a screen concern, not a pref). */
     private val searchQuery = MutableStateFlow("")
@@ -108,6 +126,7 @@ public class SettingsViewModel @Inject constructor(
             settings.normalizeVolume,
             searchQuery,
             downloadManager.downloads,
+            backup,
         ) { v: Array<Any?> -> v },
     ) { a: Array<Any?>, b: Array<Any?>, c: Array<Any?> ->
         UiState(
@@ -139,6 +158,9 @@ public class SettingsViewModel @Inject constructor(
                 .filter { it.state == DownloadState.DONE }
                 .sumOf { it.bytesDownloaded },
             confirmClearDownloads = (b[4] as DialogState).clearDownloads,
+            includeBackupDownloads = (c[6] as BackupState).includeDownloads,
+            backupRunning = (c[6] as BackupState).running,
+            backupStatus = (c[6] as BackupState).status,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, UiState())
 
@@ -250,6 +272,67 @@ public class SettingsViewModel @Inject constructor(
         viewModelScope.launch { downloadManager.clearAll() }
     }
 
+    // Backup & restore — SAF document URIs handed in by the screen.
+    public fun setIncludeBackupDownloads(include: Boolean) {
+        backup.value = backup.value.copy(includeDownloads = include)
+    }
+
+    public fun exportBackup(uri: Uri) {
+        if (backup.value.running) return
+        val includeFiles = backup.value.includeDownloads
+        backup.value = backup.value.copy(running = true, status = "Exporting…")
+        viewModelScope.launch {
+            val result = runCatching {
+                backupManager.exportBackup(
+                    uri = uri,
+                    includeDownloadFiles = includeFiles,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    recentSearches = recentSearches.recent.value,
+                )
+            }
+            backup.value = backup.value.copy(
+                running = false,
+                status = result.fold(
+                    onSuccess = {
+                        "Exported ${it.playlists} playlists · ${it.favorites} " +
+                            "favorites · ${it.downloads} downloads · " +
+                            formatBytes(it.downloadBytes)
+                    },
+                    onFailure = {
+                        "Export failed: ${it.message ?: it.javaClass.simpleName}"
+                    },
+                ),
+            )
+        }
+    }
+
+    public fun restoreBackup(uri: Uri) {
+        if (backup.value.running) return
+        backup.value = backup.value.copy(running = true, status = "Restoring…")
+        viewModelScope.launch {
+            val result = runCatching { backupManager.restoreBackup(uri) }
+            result.onSuccess { report ->
+                // Hot-apply: incoming searches merge ahead of existing ones
+                // (record() dedupes + front-inserts, capped at MAX_ENTRIES).
+                report.recentSearches.asReversed().forEach {
+                    recentSearches.record(it)
+                }
+            }
+            backup.value = backup.value.copy(
+                running = false,
+                status = result.fold(
+                    onSuccess = {
+                        "Restored ${it.playlists} playlists · ${it.favorites} " +
+                            "favorites · ${it.downloads} downloads"
+                    },
+                    onFailure = {
+                        "Restore failed: ${it.message ?: it.javaClass.simpleName}"
+                    },
+                ),
+            )
+        }
+    }
+
     // Library
     public fun revokeLibraryAccess(library: com.pianostream.core.data.library.LibraryRepository) {
         viewModelScope.launch { library.revokeLibraryAccess() }
@@ -277,4 +360,14 @@ public class SettingsViewModel @Inject constructor(
 
     /** The pinned registry hosts named in the remote-config consent (F2). */
     public val registryHosts: String get() = BuildConfig.REGISTRY_HOSTS
+
+    private companion object {
+        /** Byte count → display string (same format as the Settings screen). */
+        fun formatBytes(bytes: Long): String = when {
+            bytes >= 1L shl 30 -> "%.1f GB".format(bytes.toDouble() / (1L shl 30))
+            bytes >= 1L shl 20 -> "%.1f MB".format(bytes.toDouble() / (1L shl 20))
+            bytes >= 1L shl 10 -> "%.0f KB".format(bytes.toDouble() / (1L shl 10))
+            else -> "$bytes B"
+        }
+    }
 }

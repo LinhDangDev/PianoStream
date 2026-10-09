@@ -1,12 +1,15 @@
 package com.pianostream.app.settings
 
 import com.google.common.truth.Truth.assertThat
+import androidx.test.core.app.ApplicationProvider
+import com.pianostream.core.data.backup.BackupManager
 import com.pianostream.core.data.library.LibraryRepository
 import com.pianostream.core.data.library.model.Disc
 import com.pianostream.core.data.library.model.ScanProgress
 import com.pianostream.core.data.library.model.ScanResult
 import com.pianostream.core.data.library.model.SearchHit
 import com.pianostream.core.data.library.model.Track
+import com.pianostream.core.data.playback.PlaybackModule
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.PlayHistoryItem
@@ -19,7 +22,9 @@ import com.pianostream.core.data.downloads.DownloadState
 import com.pianostream.core.data.settings.SettingsDataStore.ReplayGainMode
 import com.pianostream.core.data.settings.SettingsDataStore.TaskRemovalPolicy
 import com.pianostream.core.data.settings.SettingsDataStore.ThemeMode
+import com.pianostream.core.data.settings.SettingsBackupPort
 import com.pianostream.core.media.downloads.DownloadManager
+import com.pianostream.feature.search.RecentSearchesStore
 import com.pianostream.core.youtube.api.ResolvedStream
 import com.pianostream.core.youtube.api.StreamResolver
 import com.pianostream.core.youtube.di.YouTubeLocalWipe
@@ -96,7 +101,23 @@ class SettingsViewModelTest {
         wiper = LocalDataWiper(ctx, playback, library, settings, ytWipe)
     }
 
-    private fun vm() = SettingsViewModel(settings, playback, wiper, downloadManager())
+    private fun vm() = SettingsViewModel(
+        settings,
+        playback,
+        wiper,
+        downloadManager(),
+        backupManager(),
+        RecentSearchesStore(ApplicationProvider.getApplicationContext()),
+    )
+
+    // androidx.room is implementation-scoped in core:data (compile-hidden
+    // here), so build the db through the module's public provider instead
+    // of Room.inMemoryDatabaseBuilder.
+    private fun backupManager() = BackupManager(
+        context = ApplicationProvider.getApplicationContext(),
+        db = PlaybackModule.playbackDatabase(ApplicationProvider.getApplicationContext()),
+        settingsBackup = SettingsBackupPort(settings),
+    )
 
     private fun downloadManager() = DownloadManager(
         context = RuntimeEnvironment.getApplication(),

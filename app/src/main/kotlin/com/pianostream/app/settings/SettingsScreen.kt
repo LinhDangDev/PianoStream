@@ -2,6 +2,8 @@ package com.pianostream.app.settings
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,6 +61,9 @@ import com.pianostream.core.designsystem.component.SectionHeader
 import androidx.compose.material3.ButtonDefaults
 import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.theme.Aurora
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Settings — every frozen `SettingsDataStore` key reachable (C5): a search
@@ -84,6 +89,38 @@ public fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    // SAF document pickers — same StartActivityForResult pattern as
+    // LibraryRootPicker (the typed contracts can't name a mime set).
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        result.data?.data?.let(viewModel::exportBackup)
+    }
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        result.data?.data?.let(viewModel::restoreBackup)
+    }
+    val onExportBackup = {
+        exportLauncher.launch(
+            Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/zip")
+                .putExtra(Intent.EXTRA_TITLE, suggestedBackupName()),
+        )
+    }
+    val onRestoreBackup = {
+        restoreLauncher.launch(
+            Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*")
+                .putExtra(
+                    Intent.EXTRA_MIME_TYPES,
+                    arrayOf("application/zip", "application/octet-stream"),
+                ),
+        )
+    }
 
     Column(modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -118,6 +155,7 @@ public fun SettingsScreen(
         val sections = buildSections(
             state, viewModel, context.equalizerOpener(),
             onOpenAbout, onOpenUpdater, onRevokeLibrary, onClearStreamCache,
+            onExportBackup, onRestoreBackup,
         )
 
         val query = state.searchQuery.trim()
@@ -257,6 +295,12 @@ private fun android.content.Context.equalizerOpener(): () -> Unit = {
     }
 }
 
+/** `Music-backup-<yyyyMMdd-HHmm>.psb` — the CreateDocument suggested name. */
+private fun suggestedBackupName(): String =
+    "Music-backup-" +
+        SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) +
+        ".psb"
+
 /** Byte count → display string ("412 KB", "3.2 MB", "1.1 GB"). */
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1L shl 30 -> "%.1f GB".format(bytes.toDouble() / (1L shl 30))
@@ -281,6 +325,8 @@ private fun buildSections(
     onOpenUpdater: () -> Unit,
     onRevokeLibrary: () -> Unit,
     onClearStreamCache: () -> Unit,
+    onExportBackup: () -> Unit,
+    onRestoreBackup: () -> Unit,
 ): List<SettingSection> = listOf(
     SettingSection(
         title = "Appearance",
@@ -479,6 +525,45 @@ private fun buildSections(
                     onClick = viewModel::requestClearDownloads,
                     enabled = state.downloadCount > 0,
                 )
+            },
+        ),
+    ),
+    SettingSection(
+        title = "Backup & restore",
+        rows = listOfNotNull(
+            SettingRow("Include downloaded audio files") {
+                ToggleRow(
+                    title = "Include downloaded audio files",
+                    subtitle = "Copies the audio files into the .psb archive",
+                    checked = state.includeBackupDownloads,
+                    onToggle = viewModel::setIncludeBackupDownloads,
+                    enabled = !state.backupRunning,
+                )
+            },
+            SettingRow("Export backup") {
+                ActionRow(
+                    title = "Export backup",
+                    subtitle = "Playlists, favorites, history, settings, downloads",
+                    onClick = onExportBackup,
+                    enabled = !state.backupRunning,
+                )
+            },
+            SettingRow("Restore backup") {
+                ActionRow(
+                    title = "Restore backup",
+                    subtitle = "Merges a .psb backup into this device",
+                    onClick = onRestoreBackup,
+                    enabled = !state.backupRunning,
+                )
+            },
+            state.backupStatus?.let { status ->
+                SettingRow("Backup status") {
+                    ActionRow(
+                        title = status,
+                        onClick = {},
+                        enabled = false,
+                    )
+                }
             },
         ),
     ),
