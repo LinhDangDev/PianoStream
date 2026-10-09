@@ -8,21 +8,51 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.outlined.AllInclusive
+import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DeleteForever
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.DownloadForOffline
+import androidx.compose.material.icons.outlined.Equalizer
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.FolderOff
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Speaker
+import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Stream
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.Swipe
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.Timeline
+import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -74,9 +104,11 @@ import java.util.Locale
  *
  * Presentation: grouped neumorphic cards — one raised charcoal card per
  * section with hairline-separated rows, same recipe as the About disclosure
- * cards (the turntable language, after dribbble.com/shots/12239558). The
- * search/playback layout follows Spotify Settings (search field, then a
- * Playback group carrying audio quality, gapless/mono/normalize, equalizer).
+ * cards (the turntable language, after dribbble.com/shots/12239558). Every
+ * row leads with a gold-tinted icon chip and navigable rows trail a chevron
+ * (the "vinyl console" direction). The search/playback layout follows
+ * Spotify Settings (search field, then a Playback group carrying audio
+ * quality, gapless/mono/normalize, equalizer).
  */
 @Composable
 public fun SettingsScreen(
@@ -333,6 +365,7 @@ private fun buildSections(
         rows = listOf(
             SettingRow("Theme") {
                 ChoiceRow(
+                    icon = Icons.Outlined.DarkMode,
                     title = "Theme",
                     value = state.themeMode.name.lowercase().replaceFirstChar { it.uppercase() },
                     choices = ThemeMode.entries.toList(),
@@ -342,6 +375,7 @@ private fun buildSections(
             },
             SettingRow("Dynamic color") {
                 ToggleRow(
+                    icon = Icons.Outlined.Palette,
                     title = "Dynamic color",
                     subtitle = "Wallpaper-based colors (Android 12+)",
                     checked = state.dynamicColor,
@@ -355,6 +389,7 @@ private fun buildSections(
         rows = listOf(
             SettingRow("ReplayGain") {
                 ChoiceRow(
+                    icon = Icons.Outlined.GraphicEq,
                     title = "ReplayGain",
                     subtitle = "OFF restores audio offload",
                     value = state.replayGainMode.name,
@@ -365,6 +400,7 @@ private fun buildSections(
             },
             SettingRow("ReplayGain preamp") {
                 SliderRow(
+                    icon = Icons.Outlined.Timeline,
                     title = "ReplayGain preamp",
                     valueLabel = "${state.preampDb} dB",
                     value = state.preampDb.toFloat(),
@@ -374,6 +410,7 @@ private fun buildSections(
             },
             SettingRow("YouTube audio quality") {
                 ChoiceRow(
+                    icon = Icons.Outlined.MusicNote,
                     title = "YouTube audio quality",
                     value = AUDIO_QUALITY_LABELS[state.audioItagTier]
                         ?: state.audioItagTier,
@@ -384,6 +421,7 @@ private fun buildSections(
             },
             SettingRow("Preferred stream quality") {
                 ChoiceRow(
+                    icon = Icons.Outlined.Stream,
                     title = "Preferred stream quality",
                     value = "itag ${state.preferredItag}",
                     choices = listOf(251, 250, 249, 140),
@@ -393,6 +431,7 @@ private fun buildSections(
             },
             SettingRow("Crossfade") {
                 SliderRow(
+                    icon = Icons.Outlined.SwapHoriz,
                     title = "Crossfade",
                     valueLabel = "${state.crossfadeMs} ms",
                     value = state.crossfadeMs.toFloat(),
@@ -402,6 +441,7 @@ private fun buildSections(
             },
             SettingRow("Mono audio") {
                 ToggleRow(
+                    icon = Icons.Outlined.Speaker,
                     title = "Mono audio",
                     subtitle = "Merge stereo into one channel",
                     checked = state.monoAudio,
@@ -410,6 +450,7 @@ private fun buildSections(
             },
             SettingRow("Gapless playback") {
                 ToggleRow(
+                    icon = Icons.Outlined.AllInclusive,
                     title = "Gapless playback",
                     subtitle = "Seamless track transitions",
                     checked = state.gapless,
@@ -418,6 +459,7 @@ private fun buildSections(
             },
             SettingRow("Normalize volume") {
                 ToggleRow(
+                    icon = Icons.Outlined.Equalizer,
                     title = "Normalize volume",
                     subtitle = "Even out loudness across tracks",
                     checked = state.normalizeVolume,
@@ -434,6 +476,7 @@ private fun buildSections(
             },
             SettingRow("When the app is swiped away") {
                 ChoiceRow(
+                    icon = Icons.Outlined.Swipe,
                     title = "When the app is swiped away",
                     value = state.taskRemovalPolicy.name,
                     choices = TaskRemovalPolicy.entries.toList(),
@@ -448,6 +491,7 @@ private fun buildSections(
         rows = listOf(
             SettingRow("This device only") {
                 ToggleRow(
+                    icon = Icons.Outlined.WifiOff,
                     title = "This device only",
                     subtitle = "Search never touches the network",
                     checked = state.localOnlySearch,
@@ -456,6 +500,7 @@ private fun buildSections(
             },
             SettingRow("Search suggestions") {
                 ToggleRow(
+                    icon = Icons.Outlined.Lightbulb,
                     title = "Search suggestions",
                     subtitle = "Sends your query to YouTube while typing",
                     checked = state.sendSearchSuggestions,
@@ -465,6 +510,7 @@ private fun buildSections(
             SettingRow("In-app updates") {
                 if (BuildConfig.UPDATE_ASSET.isNotEmpty()) {
                     ToggleRow(
+                        icon = Icons.Outlined.SystemUpdate,
                         title = "In-app updates",
                         subtitle = "GitHub builds check your release channel",
                         checked = state.updaterEnabled,
@@ -474,6 +520,7 @@ private fun buildSections(
                     )
                 } else {
                     ToggleRow(
+                        icon = Icons.Outlined.SystemUpdate,
                         title = "In-app updates",
                         subtitle = "GitHub build only",
                         checked = false,
@@ -484,6 +531,7 @@ private fun buildSections(
             },
             SettingRow("Remote player config") {
                 ToggleRow(
+                    icon = Icons.Outlined.CloudDownload,
                     title = "Remote player config",
                     subtitle = "YouTube player.js config refresh",
                     checked = state.remoteConfigEnabled,
@@ -497,6 +545,7 @@ private fun buildSections(
         rows = listOf(
             SettingRow("Stream cache budget") {
                 SliderRow(
+                    icon = Icons.Outlined.Storage,
                     title = "Stream cache budget",
                     valueLabel = "${state.cacheBudgetBytes / (1024 * 1024)} MB",
                     value = (state.cacheBudgetBytes / (1024 * 1024)).toFloat(),
@@ -505,12 +554,13 @@ private fun buildSections(
                 )
             },
             SettingRow("Clear stream cache") {
-                ActionRow(title = "Clear stream cache", onClick = {
+                ActionRow(icon = Icons.Outlined.DeleteSweep, title = "Clear stream cache", onClick = {
                     viewModel.clearStreamCache(); onClearStreamCache()
                 })
             },
             SettingRow("Downloads") {
                 ActionRow(
+                    icon = Icons.Outlined.Download,
                     title = "Downloads",
                     subtitle = "${state.downloadCount} items · " +
                         formatBytes(state.downloadBytes),
@@ -520,6 +570,7 @@ private fun buildSections(
             },
             SettingRow("Clear all downloads") {
                 ActionRow(
+                    icon = Icons.Outlined.Delete,
                     title = "Clear all downloads",
                     subtitle = "Deletes every downloaded file",
                     onClick = viewModel::requestClearDownloads,
@@ -533,6 +584,7 @@ private fun buildSections(
         rows = listOfNotNull(
             SettingRow("Include downloaded audio files") {
                 ToggleRow(
+                    icon = Icons.Outlined.DownloadForOffline,
                     title = "Include downloaded audio files",
                     subtitle = "Copies the audio files into the .psb archive",
                     checked = state.includeBackupDownloads,
@@ -542,6 +594,7 @@ private fun buildSections(
             },
             SettingRow("Export backup") {
                 ActionRow(
+                    icon = Icons.Outlined.Backup,
                     title = "Export backup",
                     subtitle = "Playlists, favorites, history, settings, downloads",
                     onClick = onExportBackup,
@@ -550,6 +603,7 @@ private fun buildSections(
             },
             SettingRow("Restore backup") {
                 ActionRow(
+                    icon = Icons.Outlined.Restore,
                     title = "Restore backup",
                     subtitle = "Merges a .psb backup into this device",
                     onClick = onRestoreBackup,
@@ -559,6 +613,7 @@ private fun buildSections(
             state.backupStatus?.let { status ->
                 SettingRow("Backup status") {
                     ActionRow(
+                        icon = Icons.Outlined.Info,
                         title = status,
                         onClick = {},
                         enabled = false,
@@ -572,6 +627,7 @@ private fun buildSections(
         rows = listOf(
             SettingRow("Library folder") {
                 ActionRow(
+                    icon = Icons.Outlined.Folder,
                     title = "Library folder",
                     subtitle = state.libraryRootTreeUri ?: "Not set",
                     onClick = {},
@@ -580,6 +636,7 @@ private fun buildSections(
             },
             SettingRow("Revoke library access") {
                 ActionRow(
+                    icon = Icons.Outlined.FolderOff,
                     title = "Revoke library access",
                     subtitle = "Releases the folder permission",
                     onClick = onRevokeLibrary,
@@ -591,7 +648,7 @@ private fun buildSections(
         title = "About",
         rows = listOf(
             SettingRow("About PianoStream") {
-                ActionRow(title = "About PianoStream", onClick = onOpenAbout)
+                ActionRow(icon = Icons.Outlined.Info, title = "About PianoStream", onClick = onOpenAbout)
             },
         ),
     ),
@@ -600,6 +657,7 @@ private fun buildSections(
         rows = listOf(
             SettingRow("Delete all local data") {
                 ActionRow(
+                    icon = Icons.Outlined.DeleteForever,
                     title = "Delete all local data",
                     subtitle = "Wipes databases, settings, caches — everything",
                     onClick = viewModel::requestDeleteAll,
@@ -652,13 +710,51 @@ private fun SettingsGroup(
     }
 }
 
-/** Hairline inside a card between rows. */
+/** Hairline inside a card between rows — inset past the icon chip. */
 @Composable
 private fun RowDivider() {
     HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 16.dp),
+        modifier = Modifier.padding(start = 64.dp, end = 16.dp),
         thickness = 0.5.dp,
         color = Aurora.Hairline,
+    )
+}
+
+/** 36dp rounded-square chip with a gold glyph — the row's leading icon. */
+@Composable
+private fun IconChip(icon: ImageVector, danger: Boolean = false, enabled: Boolean = true) {
+    val tint = when {
+        !enabled -> Aurora.TextSecondary
+        danger -> Color(0xFFD97B6C)
+        else -> Vinyl.Gold
+    }
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (danger) Color(0xFFD97B6C).copy(alpha = 0.15f)
+                else Vinyl.Gold.copy(alpha = 0.13f),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(19.dp),
+        )
+    }
+}
+
+/** Trailing chevron marking a row that opens a chooser or a destination. */
+@Composable
+private fun RowChevron() {
+    Icon(
+        Icons.Outlined.ChevronRight,
+        contentDescription = null,
+        tint = Aurora.TextSecondary,
+        modifier = Modifier.size(20.dp),
     )
 }
 
@@ -670,6 +766,7 @@ private fun ToggleRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     enabled: Boolean = true,
+    icon: ImageVector? = null,
 ) {
     Row(
         modifier = modifier
@@ -679,6 +776,10 @@ private fun ToggleRow(
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        icon?.let {
+            IconChip(it, enabled = enabled)
+            Spacer(Modifier.width(12.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = Aurora.TextPrimary)
             subtitle?.let {
@@ -712,48 +813,57 @@ private fun <T> ChoiceRow(
     onPick: (T) -> Unit,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    icon: ImageVector? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(
+    Row(
         modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable { expanded = true }
             .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, color = Aurora.TextPrimary)
-        subtitle?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = Aurora.TextSecondary,
-            )
+        icon?.let {
+            IconChip(it)
+            Spacer(Modifier.width(12.dp))
         }
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = Vinyl.Gold,
-        )
-        androidx.compose.material3.DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            shape = RoundedCornerShape(14.dp),
-            containerColor = Color(0xFF232529),
-            tonalElevation = 0.dp,
-        ) {
-            choices.forEach { c ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            label(c),
-                            color = if (label(c) == value) Vinyl.Gold
-                            else Aurora.TextPrimary,
-                        )
-                    },
-                    onClick = { onPick(c); expanded = false },
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = Aurora.TextPrimary)
+            subtitle?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Aurora.TextSecondary,
                 )
             }
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Vinyl.Gold,
+            )
+            androidx.compose.material3.DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                shape = RoundedCornerShape(14.dp),
+                containerColor = Color(0xFF232529),
+                tonalElevation = 0.dp,
+            ) {
+                choices.forEach { c ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                label(c),
+                                color = if (label(c) == value) Vinyl.Gold
+                                else Aurora.TextPrimary,
+                            )
+                        },
+                        onClick = { onPick(c); expanded = false },
+                    )
+                }
+            }
         }
+        RowChevron()
     }
 }
 
@@ -765,18 +875,25 @@ private fun SliderRow(
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
 ) {
-    Column(
+    Row(
         modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.fillMaxWidth()) {
-            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = Aurora.TextPrimary)
-            Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = Vinyl.Gold)
+        icon?.let {
+            IconChip(it)
+            Spacer(Modifier.width(12.dp))
         }
-        Slider(
+        Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth()) {
+                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = Aurora.TextPrimary)
+                Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = Vinyl.Gold)
+            }
+            Slider(
             value = value,
             onValueChange = onChange,
             valueRange = range,
@@ -785,7 +902,8 @@ private fun SliderRow(
                 activeTrackColor = Vinyl.Gold,
                 inactiveTrackColor = Vinyl.BgBottom,
             ),
-        )
+            )
+        }
     }
 }
 
@@ -808,16 +926,10 @@ private fun ActionRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         icon?.let {
-            Icon(
-                it,
-                contentDescription = null,
-                tint = if (enabled) Vinyl.GoldDim else Aurora.TextSecondary,
-                modifier = Modifier
-                    .padding(end = 14.dp)
-                    .size(20.dp),
-            )
+            IconChip(it, danger = danger, enabled = enabled)
+            Spacer(Modifier.width(12.dp))
         }
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(
                 title,
                 style = MaterialTheme.typography.bodyLarge,
@@ -833,5 +945,6 @@ private fun ActionRow(
                 )
             }
         }
+        if (enabled) RowChevron()
     }
 }
