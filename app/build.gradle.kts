@@ -39,7 +39,7 @@ android {
         // Releases, release signing-cert SHA-256 fingerprint, minisign public key.
         buildConfigField("String", "UPDATE_REPO", "\"LinhDangDev/PianoStream\"")
         buildConfigField("String", "UPDATE_ASSET", "\"PianoStream-release.apk\"")
-        buildConfigField("String", "RELEASE_CERT_SHA256", "\"e61c728a93f6e6f6cf8adb2143dd88c2c4e133a1abd9d572549cb22a47adafa3\"")
+        buildConfigField("String", "RELEASE_CERT_SHA256", "\"099ebcbb13d8bd4ddb46663ca576e510f294b47599559549abf4f5dd96a151ad\"")
         buildConfigField("String", "UPDATE_PUBKEY", "\"RWSRAFOWN9GQ1KhzkU28NWyralAntsty9EoG80//t81GXrgozB8hRDvt\"")
     }
 
