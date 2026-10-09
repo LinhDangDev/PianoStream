@@ -273,6 +273,35 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Queue rows for [disc] (any disc — not just the selected one) built
+     * the same way [discQueue] builds them: contentKey mediaIds in cue
+     * order. Used by the disc ⋯ sheet's Play/Shuffle/Add-to-queue actions.
+     */
+    fun queueForDisc(disc: Disc, onReady: (List<QueueItem>) -> Unit) {
+        viewModelScope.launch {
+            val tracks = runCatching {
+                libraryRepository.tracksOf(disc.id)
+            }.getOrDefault(emptyList())
+            if (tracks.isEmpty()) return@launch
+            val now = System.currentTimeMillis()
+            onReady(
+                tracks.mapIndexed { i, t ->
+                    QueueItem(
+                        position = i,
+                        mediaId = LibraryHasher.mediaId(disc.folderPath, i),
+                        title = t.title,
+                        artist = t.performer ?: t.composer,
+                        artworkUri = disc.artworkUri,
+                        source = MediaSource.LOCAL,
+                        durationMs = t.endMs?.let { it - t.startMs },
+                        addedAt = now,
+                    )
+                },
+            )
+        }
+    }
+
     /** Removes [mediaId] from the playlist open in the detail view. */
     fun removeFromSelectedPlaylist(mediaId: String) {
         val id = _state.value.selectedPlaylistId ?: return

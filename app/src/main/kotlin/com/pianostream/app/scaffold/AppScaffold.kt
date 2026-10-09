@@ -25,7 +25,11 @@ import com.pianostream.app.navigation.Route
 import com.pianostream.core.designsystem.component.PillNavBar
 import com.pianostream.core.designsystem.component.PillNavItem
 import com.pianostream.core.designsystem.theme.Aurora
+import com.pianostream.core.data.playback.model.MediaSource
+import com.pianostream.core.data.playback.model.QueueItem
+import com.pianostream.app.share.ShareIntents
 import com.pianostream.feature.player.ExpandingPlayer
+import com.pianostream.feature.player.PlayerActions
 
 private data class TopTab(val route: Route, val label: String, val icon: ImageVector)
 
@@ -51,8 +55,57 @@ public fun AppScaffold(
     androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.connectIfNeeded() }
 
     var playerExpanded by rememberSaveable { mutableStateOf(false) }
+    var playlistTarget by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<QueueItem?>(null)
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
     val current = backStack.lastOrNull()
     val showTabs = current in TOP_LEVEL.map { it.route }
+
+    // Player ⋯ sheet targets the LIVE media item — read metadata at tap
+    // time (these lambdas only fire while an item is loaded).
+    val playerActions = PlayerActions(
+        onAddToQueue = { viewModel.enqueueCurrent() },
+        onShare = {
+            viewModel.player.value?.currentMediaItem?.let { item ->
+                val meta = item.mediaMetadata
+                ShareIntents.shareTrack(
+                    context = context,
+                    title = meta.title?.toString() ?: item.mediaId,
+                    artist = meta.artist?.toString(),
+                    sourceUri = item.mediaId,
+                    artworkUri = meta.artworkUri?.toString(),
+                )
+            }
+        },
+        onGoToArtist = {
+            viewModel.player.value?.currentMediaItem?.mediaMetadata
+                ?.artist?.toString()?.takeIf { it.isNotBlank() }?.let {
+                    backStack.add(Route.Artist(it))
+                }
+        },
+        onAddToPlaylist = {
+            viewModel.player.value?.currentMediaItem?.let { item ->
+                val meta = item.mediaMetadata
+                playlistTarget = QueueItem(
+                    position = 0,
+                    mediaId = item.mediaId,
+                    title = meta.title?.toString() ?: item.mediaId,
+                    artist = meta.artist?.toString(),
+                    artworkUri = meta.artworkUri?.toString(),
+                    source = if (item.mediaId.startsWith("pianostream://local/")) {
+                        MediaSource.LOCAL
+                    } else {
+                        MediaSource.YOUTUBE
+                    },
+                    durationMs = null,
+                    addedAt = System.currentTimeMillis(),
+                )
+            }
+        },
+        // onSleepTimer/onGoToAlbum stay null — ExpandingPlayer renders its
+        // own sleep-timer sheet, and a playing item has no discId handle.
+    )
 
     Column(Modifier.fillMaxSize().background(Aurora.Bg)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -62,7 +115,15 @@ public fun AppScaffold(
             ExpandingPlayer(
                 expanded = playerExpanded,
                 onExpandedChange = { playerExpanded = it },
+                actions = playerActions,
             )
+            playlistTarget?.let { item ->
+                com.pianostream.app.navigation.PlayerPlaylistSheet(
+                    item = item,
+                    viewModel = viewModel,
+                    onDismiss = { playlistTarget = null },
+                )
+            }
         }
         if (showTabs && !playerExpanded) {
             PillNavBar(

@@ -1,7 +1,8 @@
 package com.pianostream.core.designsystem.component
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import com.pianostream.core.designsystem.theme.Aurora
 import java.util.Locale
 
 /** One list row: artwork + title + subtitle + optional duration. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrackRow(
     title: String,
@@ -45,6 +47,8 @@ fun TrackRow(
     durationMs: Long?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Long-press context action (disc ⋯ sheet); null = disabled. */
+    onLongClick: (() -> Unit)? = null,
     isCurrent: Boolean = false,
     isPlaying: Boolean = false,
     isPaused: Boolean = false,
@@ -59,7 +63,7 @@ fun TrackRow(
             .fillMaxWidth()
             .heightIn(min = 56.dp) // ≥48dp touch target
             .semantics { contentDescription = "Play track: $title" }
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Box(

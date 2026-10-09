@@ -43,6 +43,7 @@ object PlayerFactory {
         okHttp: OkHttpClient,
         cacheBudgetBytes: Long,
         videoItagProvider: () -> Int? = { null },
+        audioItagProvider: () -> Int? = { null },
     ): DataSource.Factory {
         val upstreamHttp = OkHttpDataSource.Factory(okHttp.newBuilder().build())
         val localUpstream = DefaultDataSource.Factory(context)
@@ -52,6 +53,7 @@ object PlayerFactory {
             preferredItag = preferredItag,
             localResolver = localResolver,
             videoItagProvider = videoItagProvider,
+            audioItagProvider = audioItagProvider,
         )
         val cached = CacheDataSource.Factory()
             .setCache(MediaCache.getInstance(context, cacheBudgetBytes))
@@ -66,6 +68,7 @@ object PlayerFactory {
             preferredItag = preferredItag,
             localResolver = localResolver,
             videoItagProvider = videoItagProvider,
+            audioItagProvider = audioItagProvider,
         )
         return DataSource.Factory {
             SchemeRoutingDataSource(

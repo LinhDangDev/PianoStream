@@ -10,6 +10,9 @@ import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.media.api.PlaybackController
+import com.pianostream.core.media.lyrics.Lyrics
+import com.pianostream.core.media.lyrics.LyricsQuery
+import com.pianostream.core.media.lyrics.LyricsRepository
 import com.pianostream.core.media.sleep.SleepTimerMode
 import com.pianostream.core.media.sleep.SleepTimerState
 import com.pianostream.core.media.video.VideoQualityStore
@@ -40,6 +43,7 @@ class PlayerViewModel @Inject constructor(
     private val controller: PlaybackController,
     private val playbackRepository: PlaybackRepository,
     private val videoQualityStore: VideoQualityStore,
+    private val lyricsRepository: LyricsRepository,
 ) : ViewModel() {
 
     data class UiState(
@@ -73,6 +77,16 @@ class PlayerViewModel @Inject constructor(
 
     private val _sleepTimer = MutableStateFlow(SleepTimerState())
     val sleepTimer: StateFlow<SleepTimerState> = _sleepTimer.asStateFlow()
+
+    /** Lyrics for the current item: null = loading/none loaded yet. */
+    sealed interface LyricsLoad {
+        data object Loading : LyricsLoad
+        data class Ready(val lyrics: Lyrics?) : LyricsLoad
+    }
+    private val _lyrics = MutableStateFlow<LyricsLoad>(LyricsLoad.Loading)
+    val lyrics: StateFlow<LyricsLoad> = _lyrics.asStateFlow()
+    private var lyricsMediaId: String? = null
+    private var historyMediaId: String? = null
 
     init {
         scope.launch {
@@ -201,6 +215,14 @@ class PlayerViewModel @Inject constructor(
 
     private fun sync(player: Player) {
         val mediaId = player.currentMediaItem?.mediaId.orEmpty()
+        if (mediaId.isNotEmpty() && mediaId != lyricsMediaId) {
+            lyricsMediaId = mediaId
+            loadLyricsFor(player.currentMediaItem)
+        }
+        if (mediaId.isNotEmpty() && mediaId != historyMediaId) {
+            historyMediaId = mediaId
+            appendHistory(player.currentMediaItem)
+        }
         _state.update {
             it.copy(
                 currentItem = player.currentMediaItem,
@@ -215,6 +237,59 @@ class PlayerViewModel @Inject constructor(
                 videoMode = mediaId.startsWith(VIDEO_URI_PREFIX),
                 isFavorite = mediaId in favoriteIds.value,
             )
+        }
+    }
+
+    private fun loadLyricsFor(item: MediaItem?) {
+        item ?: return
+        val meta = item.mediaMetadata
+        _lyrics.value = LyricsLoad.Loading
+        scope.launch {
+            val result = runCatching {
+                lyricsRepository.get(
+                    LyricsQuery(
+                        mediaId = item.mediaId,
+                        title = meta.title?.toString() ?: item.mediaId,
+                        artist = meta.artist?.toString().orEmpty(),
+                        durationMs = _state.value.durationMs,
+                        localFileUri = item.mediaId.takeIf {
+                            it.startsWith("pianostream://local/")
+                        }?.let {
+                            com.pianostream.core.media.local.LocalMediaItemFactory
+                                .flacUriOf(item)
+                        },
+                    ),
+                )
+            }.getOrNull()
+            if (lyricsMediaId == item.mediaId) {
+                _lyrics.value = LyricsLoad.Ready(result)
+            }
+        }
+    }
+
+    /** Write one history row per newly-current item — feeds Home's rail. */
+    private fun appendHistory(item: MediaItem?) {
+        item ?: return
+        val meta = item.mediaMetadata
+        val source = if (item.mediaId.startsWith("pianostream://local/")) {
+            MediaSource.LOCAL
+        } else {
+            MediaSource.YOUTUBE
+        }
+        scope.launch {
+            runCatching {
+                playbackRepository.appendHistory(
+                    com.pianostream.core.data.playback.model.PlayHistoryItem(
+                        mediaId = item.mediaId,
+                        title = meta.title?.toString() ?: item.mediaId,
+                        artist = meta.artist?.toString(),
+                        artworkUri = meta.artworkUri?.toString(),
+                        source = source,
+                        playedAt = System.currentTimeMillis(),
+                        playedMs = _state.value.positionMs,
+                    ),
+                )
+            }
         }
     }
 

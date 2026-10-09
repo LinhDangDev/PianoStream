@@ -2,7 +2,8 @@ package com.pianostream.core.designsystem.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -37,6 +38,7 @@ import com.pianostream.core.designsystem.theme.Aurora
  * gets a 7-inch look — proportionally larger centre label plus a gold
  * "45" stamp — instead of reading like a broken album.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DiscCard(
     title: String,
@@ -44,6 +46,8 @@ fun DiscCard(
     artworkUri: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Long-press context action (disc ⋯ sheet); null = disabled. */
+    onLongClick: (() -> Unit)? = null,
     isSingle: Boolean = false,
 ) {
     // Action-first description so a11y announces intent, and the E2E suite
@@ -66,7 +70,10 @@ fun DiscCard(
                 ),
             )
             .border(0.5.dp, Aurora.Hairline, shape)
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
     ) {
         Box(
             Modifier

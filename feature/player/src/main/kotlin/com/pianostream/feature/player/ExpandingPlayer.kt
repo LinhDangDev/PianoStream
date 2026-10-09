@@ -104,6 +104,10 @@ import com.pianostream.core.designsystem.component.PlaybackErrorState
 import com.pianostream.core.designsystem.component.Vinyl
 import com.pianostream.core.designsystem.component.formatDuration
 import com.pianostream.core.designsystem.theme.Aurora
+import com.pianostream.core.media.lyrics.Lyrics
+import com.pianostream.core.media.sleep.SleepTimerMode
+import com.pianostream.feature.player.lyrics.LyricsScreen
+import com.pianostream.feature.player.lyrics.LyricsUiState
 import kotlin.math.roundToInt
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -142,6 +146,8 @@ fun ExpandingPlayer(
 
     var queueOpen by remember { mutableStateOf(false) }
     var actionsOpen by remember { mutableStateOf(false) }
+    var sleepOpen by remember { mutableStateOf(false) }
+    var lyricsOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val artworkRotation = remember { Animatable(0f) }
@@ -661,7 +667,10 @@ fun ExpandingPlayer(
             onDismissRequest = { queueOpen = false },
             containerColor = Vinyl.BgTop,
         ) {
-            QueueSheet(modifier = Modifier.fillMaxHeight(0.75f))
+            QueueSheet(
+                modifier = Modifier.fillMaxHeight(0.75f),
+                onClearQueue = viewModel::clearQueue,
+            )
         }
     }
 
@@ -744,9 +753,73 @@ fun ExpandingPlayer(
                         label = "Sleep timer",
                         onClick = { actionsOpen = false; action() },
                     )
-                }
+                } ?: SheetActionRow(
+                    icon = Icons.Filled.Bedtime,
+                    tint = Vinyl.GoldDim,
+                    label = "Sleep timer",
+                    onClick = { actionsOpen = false; sleepOpen = true },
+                )
+                SheetActionRow(
+                    icon = Icons.Filled.MusicNote,
+                    tint = Vinyl.GoldDim,
+                    label = "Lyrics",
+                    onClick = { actionsOpen = false; lyricsOpen = true },
+                )
             }
         }
+    }
+
+    if (sleepOpen) {
+        val timer = viewModel.sleepTimer.collectAsStateWithLifecycle().value
+        SleepTimerSheet(
+            state = SleepTimerUi(
+                active = timer.active,
+                remainingMs = timer.remainingMs,
+                mode = when (timer.mode) {
+                    is SleepTimerMode.AfterMinutes ->
+                        SleepTimerUi.Mode.entries.firstOrNull {
+                            it.minutes == (timer.mode as SleepTimerMode.AfterMinutes).minutes
+                        } ?: SleepTimerUi.Mode.MIN30
+                    SleepTimerMode.EndOfTrack -> SleepTimerUi.Mode.END_OF_TRACK
+                    null -> SleepTimerUi.Mode.MIN30
+                },
+            ),
+            onPick = { mode ->
+                viewModel.setSleepTimer(
+                    mode.minutes?.let { SleepTimerMode.AfterMinutes(it) }
+                        ?: SleepTimerMode.EndOfTrack,
+                )
+                sleepOpen = false
+            },
+            onCancel = {
+                viewModel.cancelSleepTimer()
+                sleepOpen = false
+            },
+            onDismiss = { sleepOpen = false },
+        )
+    }
+
+    if (lyricsOpen) {
+        val load = viewModel.lyrics.collectAsStateWithLifecycle().value
+        val lyrics = (load as? PlayerViewModel.LyricsLoad.Ready)?.lyrics
+        LyricsScreen(
+            state = LyricsUiState(
+                title = title,
+                artist = artist,
+                lines = (lyrics as? Lyrics.Synced)?.lines?.map {
+                    LyricsUiState.Line(it.atMs, it.text)
+                },
+                plainText = when {
+                    load !is PlayerViewModel.LyricsLoad.Ready -> null
+                    lyrics is Lyrics.Plain -> lyrics.text
+                    else -> (lyrics as? Lyrics.Synced)
+                        ?.let { if (it.lines.isEmpty()) "" else null }
+                },
+            ),
+            positionMs = state.positionMs,
+            onSeekTo = { viewModel.player?.seekTo(it) },
+            onClose = { lyricsOpen = false },
+        )
     }
 }
 

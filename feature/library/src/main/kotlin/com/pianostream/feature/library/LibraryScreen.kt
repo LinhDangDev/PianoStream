@@ -91,6 +91,9 @@ fun LibraryScreen(
     /** Track-row ⋯ in the Tracks tab, shown only when provided (app nav wires
      *  it to the TrackActionsSheet). */
     onTrackActions: ((Track) -> Unit)? = null,
+    /** Disc long-press ⋯ in the Discs tab → DiscActionsSheet (app nav maps
+     *  the action to queue/artist work). */
+    onDiscAction: ((Disc, DiscAction) -> Unit)? = null,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -277,6 +280,7 @@ fun LibraryScreen(
                     },
                     onSetSort = viewModel::setDiscsSort,
                     onToggleView = viewModel::toggleDiscsView,
+                    onDiscAction = onDiscAction,
                 )
                 1 -> TracksTab(
                     state,
@@ -372,9 +376,11 @@ private fun DiscsTab(
     onSelect: (Disc) -> Unit,
     onSetSort: (LibraryPrefsStore.DiscsSort) -> Unit,
     onToggleView: () -> Unit,
+    onDiscAction: ((Disc, DiscAction) -> Unit)? = null,
 ) {
     val query = state.libraryQuery
     var sortOpen by remember { mutableStateOf(false) }
+    var discTarget by remember { mutableStateOf<Disc?>(null) }
     Column(Modifier.fillMaxSize()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -465,6 +471,11 @@ private fun DiscsTab(
                                 subtitle = disc.performer ?: disc.composer,
                                 artworkUri = disc.artworkUri,
                                 onClick = { onSelect(disc) },
+                                onLongClick = if (onDiscAction != null) {
+                                    { discTarget = disc }
+                                } else {
+                                    null
+                                },
                                 isSingle = disc.isSingle(),
                             )
                         }
@@ -478,6 +489,11 @@ private fun DiscsTab(
                                     title = disc.title,
                                     subtitle = disc.performer ?: disc.composer,
                                     artworkUri = disc.artworkUri,
+                                    onLongClick = if (onDiscAction != null) {
+                                        { discTarget = disc }
+                                    } else {
+                                        null
+                                    },
                                     onClick = { onSelect(disc) },
                                     isSingle = true,
                                 )
@@ -505,6 +521,11 @@ private fun DiscsTab(
                                     artworkUri = disc.artworkUri,
                                     durationMs = null,
                                     onClick = { onSelect(disc) },
+                                    onLongClick = if (onDiscAction != null) {
+                                        { discTarget = disc }
+                                    } else {
+                                        null
+                                    },
                                 )
                             }
                         }
@@ -522,6 +543,12 @@ private fun DiscsTab(
                                         artworkUri = disc.artworkUri,
                                         durationMs = null,
                                         onClick = { onSelect(disc) },
+                                        onLongClick =
+                                            if (onDiscAction != null) {
+                                                { discTarget = disc }
+                                            } else {
+                                                null
+                                            },
                                         trailing = { SingleBadge() },
                                     )
                                 }
@@ -575,6 +602,23 @@ private fun DiscsTab(
                 }
             }
         }
+    }
+    discTarget?.let { disc ->
+        DiscActionsSheet(
+            title = disc.title,
+            subtitle = (disc.performer ?: disc.composer).orEmpty(),
+            enabled = setOf(
+                DiscAction.Play,
+                DiscAction.Shuffle,
+                DiscAction.AddToQueue,
+                DiscAction.GoToArtist,
+            ),
+            onAction = { action ->
+                discTarget = null
+                onDiscAction?.invoke(disc, action)
+            },
+            onDismiss = { discTarget = null },
+        )
     }
 }
 
@@ -864,7 +908,7 @@ internal fun PlaylistNameDialog(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddToPlaylistSheet(
+public fun AddToPlaylistSheet(
     playlists: List<Playlist>,
     /** Ids of playlists already containing the track. */
     containing: List<Long>,

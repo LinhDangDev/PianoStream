@@ -73,9 +73,7 @@ object MediaModule {
             okHttp = okHttp,
             cacheBudgetBytes = budget,
             videoItagProvider = { videoQualityStore.currentItag },
-            // audioItagProvider = { audioQualityStore.itag.value } — passed
-            // once PlayerFactory.dataSourceFactory forwards the param
-            // (INTEGRATION hook; StreamResolvingDataSource already accepts it).
+            audioItagProvider = { audioQualityStore.itag.value },
         )
         return DefaultMediaSourceFactory(context).setDataSourceFactory(dsFactory)
     }
@@ -231,4 +229,19 @@ object MediaModule {
     fun streamCacheEvictor(): StreamCacheEvictor = StreamCacheEvictor {
         MediaCache.clearStreamCache()
     }
+
+    /** Lyrics engine: sibling `.lrc` first, then LRClib (skipped when the
+     *  user has flipped the local-only switch). */
+    @Provides
+    @Singleton
+    fun lyricsRepository(
+        @ApplicationContext context: Context,
+        okHttp: OkHttpClient,
+        settings: SettingsDataStore,
+    ): com.pianostream.core.media.lyrics.LyricsRepository =
+        com.pianostream.core.media.lyrics.createLyricsRepository(
+            context = context,
+            okHttp = okHttp,
+            offlineOnly = { runBlocking { settings.localOnlySearch.first() } },
+        )
 }
