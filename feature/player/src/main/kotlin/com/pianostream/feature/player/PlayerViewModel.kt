@@ -7,8 +7,11 @@ import androidx.media3.common.Player
 import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.MediaSource
+import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.uri.PianoStreamUri
 import com.pianostream.core.media.api.PlaybackController
+import com.pianostream.core.media.sleep.SleepTimerMode
+import com.pianostream.core.media.sleep.SleepTimerState
 import com.pianostream.core.media.video.VideoQualityStore
 import com.pianostream.core.youtube.api.ExtractionException
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -68,6 +71,9 @@ class PlayerViewModel @Inject constructor(
     private var ticker: Job? = null
     private val favoriteIds = MutableStateFlow<Set<String>>(emptySet())
 
+    private val _sleepTimer = MutableStateFlow(SleepTimerState())
+    val sleepTimer: StateFlow<SleepTimerState> = _sleepTimer.asStateFlow()
+
     init {
         scope.launch {
             videoQualityStore.itag.collect { tag ->
@@ -92,6 +98,26 @@ class PlayerViewModel @Inject constructor(
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             _state.update { it.copy(error = describeError(error)) }
+        }
+
+        // Individual callbacks run before the batched onEvents -> sync, so
+        // _state.currentItem still holds the PREVIOUS item inside them.
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val timer = _sleepTimer.value
+            if (!timer.active || timer.mode !is SleepTimerMode.EndOfTrack) return
+            val previousId = _state.value.currentItem?.mediaId
+            if (mediaItem != null && mediaItem.mediaId != previousId) {
+                fireSleepTimer()
+            }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            val timer = _sleepTimer.value
+            if (playbackState == Player.STATE_ENDED &&
+                timer.active && timer.mode is SleepTimerMode.EndOfTrack
+            ) {
+                fireSleepTimer()
+            }
         }
     }
 
@@ -122,8 +148,55 @@ class PlayerViewModel @Inject constructor(
             while (isActive) {
                 delay(1_000)
                 runCatching { sync(controller.player) }
+                tickSleepTimer()
             }
         }
+    }
+
+    /** Reuses the shared 1 s ticker; starts it when idle (timer set pre-connect). */
+    private fun ensureTicker() {
+        if (ticker?.isActive != true) startTicker()
+    }
+
+    /**
+     * Arms the sleep timer, replacing any active one. `AfterMinutes` counts
+     * down on the shared ticker (1 s per tick) and pauses on expiry;
+     * `EndOfTrack` pauses when the current track ends (transition to
+     * another item, or STATE_ENDED — see [listener]).
+     */
+    fun setSleepTimer(mode: SleepTimerMode) {
+        when (mode) {
+            is SleepTimerMode.AfterMinutes -> {
+                val durationMs = mode.minutes.coerceAtLeast(0) * 60_000L
+                _sleepTimer.value =
+                    SleepTimerState(active = true, remainingMs = durationMs, mode = mode)
+                ensureTicker()
+            }
+            SleepTimerMode.EndOfTrack -> {
+                _sleepTimer.value = SleepTimerState(active = true, mode = mode)
+            }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        _sleepTimer.value = SleepTimerState()
+    }
+
+    private fun tickSleepTimer() {
+        val timer = _sleepTimer.value
+        if (!timer.active || timer.mode !is SleepTimerMode.AfterMinutes) return
+        val remaining = timer.remainingMs - TICK_MS
+        if (remaining <= 0) {
+            fireSleepTimer()
+        } else {
+            _sleepTimer.update { it.copy(remainingMs = remaining) }
+        }
+    }
+
+    /** Pause + disarm; shared by AfterMinutes expiry and EndOfTrack transitions. */
+    private fun fireSleepTimer() {
+        runCatching { controller.player.pause() }
+        cancelSleepTimer()
     }
 
     private fun sync(player: Player) {
@@ -260,6 +333,51 @@ class PlayerViewModel @Inject constructor(
     }
 
     /**
+     * Clears every queued item except the currently playing one (B9 mirror:
+     * the durable queue is rewritten FIRST, then the live player). The
+     * cursor is read fresh and passed straight back — `replaceQueue(items,
+     * null)` would delete `queue_state` (H6), and a cached cursor could be
+     * stale by the time this coroutine runs. Player-side removal only
+     * happens while connected, matching `AppViewModel.enqueue`'s rule that
+     * an unconnected player is repopulated by the M9 cold-start restore.
+     */
+    fun clearQueue() {
+        scope.launch {
+            val p = if (_state.value.connected) controller.player else null
+            val rows = playbackRepository.observeQueue().first()
+            val current = p?.currentMediaItem
+            val kept: List<QueueItem> = if (current == null) {
+                emptyList()
+            } else {
+                val index = p.currentMediaItemIndex
+                val byIndex = rows.getOrNull(index)
+                if (byIndex != null && byIndex.mediaId == current.mediaId) {
+                    listOf(byIndex)
+                } else {
+                    rows.filter { it.mediaId == current.mediaId }
+                }
+            }
+            val cursor = playbackRepository.observeQueueState().first()
+            runCatching {
+                playbackRepository.replaceQueue(
+                    kept.mapIndexed { i, q -> q.copy(position = i) },
+                    cursor,
+                )
+            }
+            if (p != null) {
+                val index = p.currentMediaItemIndex
+                val count = p.mediaItemCount
+                if (index in 0 until count) {
+                    if (index + 1 < count) p.removeMediaItems(index + 1, count)
+                    if (index > 0) p.removeMediaItems(0, index)
+                } else if (count > 0) {
+                    p.clearMediaItems()
+                }
+            }
+        }
+    }
+
+    /**
      * Song/Video toggle (YouTube items only): swaps the current item's
      * mediaId between `pianostream://stream/` and `pianostream://video/` at
      * the same queue index, re-seeking to the live position so the switch
@@ -310,6 +428,7 @@ class PlayerViewModel @Inject constructor(
 
     private companion object {
         const val VIDEO_URI_PREFIX: String = "pianostream://video/"
+        const val TICK_MS: Long = 1_000
 
         /** videoId from a `stream` or `video` URI; null for local/other items. */
         fun videoIdOf(mediaId: String): String? = when {
