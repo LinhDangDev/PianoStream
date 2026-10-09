@@ -125,6 +125,7 @@ class SearchViewModelTest {
     }
 
     private lateinit var settings: SettingsDataStore
+    private lateinit var recents: RecentSearchesStore
     private lateinit var library: StubLibraryRepository
     private lateinit var youtube: CountingYouTubeClient
     private lateinit var vm: SearchViewModel
@@ -132,7 +133,11 @@ class SearchViewModelTest {
     @Before
     fun setUp() {
         settings = SettingsDataStore.default(RuntimeEnvironment.getApplication())
-        kotlinx.coroutines.runBlocking { settings.clear() }
+        recents = RecentSearchesStore(RuntimeEnvironment.getApplication())
+        kotlinx.coroutines.runBlocking {
+            settings.clear()
+            recents.clear()
+        }
         library = StubLibraryRepository()
         youtube = CountingYouTubeClient()
     }
@@ -177,7 +182,7 @@ class SearchViewModelTest {
     ): SearchViewModel {
         mainDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(scope.testScheduler)
         Dispatchers.setMain(mainDispatcher)
-        val vm = SearchViewModel(library, youtube, settings, playback)
+        val vm = SearchViewModel(library, youtube, settings, playback, recents)
         scope.advanceUntilIdle()
         return vm
     }
@@ -255,6 +260,78 @@ class SearchViewModelTest {
         advanceUntilIdle()
         eventually { youtube.suggestionCalls > 0 }
         assertThat(youtube.suggestionCalls).isGreaterThan(0)
+    }
+
+    @Test
+    fun `submit records query in recents, re-run moves to front`() = runTest() {
+        vm = makeVm(this)
+        vm.onQueryChanged("haydn")
+        advanceTimeBy(400)
+        advanceUntilIdle()
+        eventually { recents.recent.value.isNotEmpty() }
+        assertThat(recents.recent.value).containsExactly("haydn")
+
+        vm.onQueryChanged("mozart")
+        advanceTimeBy(400)
+        advanceUntilIdle()
+        eventually { recents.recent.value.firstOrNull() == "mozart" }
+        assertThat(recents.recent.value).containsExactly("mozart", "haydn").inOrder()
+
+        // Re-running an existing entry dedupes it back to the front.
+        vm.onQueryChanged("haydn")
+        advanceTimeBy(400)
+        advanceUntilIdle()
+        eventually { recents.recent.value.firstOrNull() == "haydn" }
+        assertThat(recents.recent.value).containsExactly("haydn", "mozart").inOrder()
+    }
+
+    @Test
+    fun `recents cap at ten entries`() = runTest() {
+        vm = makeVm(this)
+        repeat(12) { i -> recents.record("q$i") }
+        advanceUntilIdle()
+        eventually { vm.state.value.recentQueries.size == 10 }
+        assertThat(vm.state.value.recentQueries).hasSize(10)
+        assertThat(vm.state.value.recentQueries.first()).isEqualTo("q11")
+        assertThat(vm.state.value.recentQueries).doesNotContain("q0")
+    }
+
+    @Test
+    fun `removeRecent drops one entry, clearRecents wipes all`() = runTest() {
+        vm = makeVm(this)
+        recents.record("a")
+        recents.record("b")
+        advanceUntilIdle()
+        eventually { vm.state.value.recentQueries.size == 2 }
+        vm.removeRecent("a")
+        advanceUntilIdle()
+        eventually { vm.state.value.recentQueries == listOf("b") }
+        assertThat(vm.state.value.recentQueries).containsExactly("b")
+        vm.clearRecents()
+        advanceUntilIdle()
+        eventually { vm.state.value.recentQueries.isEmpty() }
+        assertThat(vm.state.value.recentQueries).isEmpty()
+    }
+
+    @Test
+    fun `pasted link records the resolved title`() = runTest() {
+        vm = makeVm(this)
+        vm.onQueryChanged("https://youtu.be/aaaaaaaaaaa")
+        advanceTimeBy(400)
+        advanceUntilIdle()
+        eventually { youtube.searchCalls > 0 }
+        eventually { recents.recent.value.isNotEmpty() }
+        assertThat(recents.recent.value.first())
+            .isEqualTo("Result https://youtu.be/aaaaaaaaaaa")
+        assertThat(recents.recent.value).hasSize(1)
+    }
+
+    @Test
+    fun `type filter defaults to ALL and switches`() = runTest() {
+        vm = makeVm(this)
+        assertThat(vm.state.value.typeFilter).isEqualTo(SearchViewModel.TypeFilter.ALL)
+        vm.setTypeFilter(SearchViewModel.TypeFilter.VIDEOS)
+        assertThat(vm.state.value.typeFilter).isEqualTo(SearchViewModel.TypeFilter.VIDEOS)
     }
 
     @Test
