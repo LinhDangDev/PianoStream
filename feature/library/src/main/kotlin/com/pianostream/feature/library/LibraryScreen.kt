@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.pianostream.core.data.library.model.Track
@@ -796,6 +797,7 @@ private fun PlaylistsTab(
     val selectedId = state.selectedPlaylistId
     if (selectedId == null) {
         var createOpen by remember { mutableStateOf(false) }
+        var importOpen by remember { mutableStateOf(false) }
         val query = state.libraryQuery
         val visible = remember(state.playlists, query) {
             state.playlists.filter { it.matchesLibraryQuery(query) }
@@ -812,6 +814,26 @@ private fun PlaylistsTab(
                 Spacer(Modifier.width(12.dp))
                 Text(
                     "New playlist",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Vinyl.Gold,
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { importOpen = true }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.CloudDownload,
+                    contentDescription = null,
+                    tint = Vinyl.Gold,
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "Import from Spotify",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = Vinyl.Gold,
@@ -844,6 +866,12 @@ private fun PlaylistsTab(
                 confirmLabel = "Create",
                 onConfirm = { onCreate(it); createOpen = false },
                 onDismiss = { createOpen = false },
+            )
+        }
+        if (importOpen) {
+            SpotifyImportSheet(
+                onOpenPlaylist = { onSelect(it) },
+                onDismiss = { importOpen = false },
             )
         }
         return
