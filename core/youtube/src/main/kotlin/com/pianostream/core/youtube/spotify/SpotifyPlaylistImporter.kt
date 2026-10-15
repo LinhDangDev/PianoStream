@@ -91,6 +91,60 @@ public class SpotifyPlaylistImporter(
         return null
     }
 
+    /** One valid playlist link pulled from the multi-link paste field. */
+    public data class ParsedLink(
+        /** Playlist id — feeds [import] directly. */
+        val id: String,
+        /** The token as pasted (for the per-link status list). */
+        val raw: String,
+        /** 1-based line it came from. */
+        val line: Int,
+    )
+
+    /** A line (or tokens of it) no playlist link could be parsed from. */
+    public data class InvalidLine(
+        val line: Int,
+        /** The offending text — the token(s) that didn't parse. */
+        val text: String,
+    )
+
+    /** Result of [parseImportLinks]: usable links + flagged lines. */
+    public data class ParsedLinks(
+        val links: List<ParsedLink>,
+        val invalid: List<InvalidLine>,
+    )
+
+    /**
+     * Multi-link input parsing: one link per line, but whitespace- and
+     * comma-separated tokens on a line are each validated on their own
+     * (links carry neither). Every token goes through [parsePlaylistId];
+     * duplicates of an already-accepted playlist id are dropped silently,
+     * tokens that don't parse flag their line (valid tokens on the same
+     * line still count).
+     */
+    public fun parseImportLinks(input: String): ParsedLinks {
+        val links = mutableListOf<ParsedLink>()
+        val invalid = mutableListOf<InvalidLine>()
+        val seen = HashSet<String>()
+        input.lines().forEachIndexed { i, rawLine ->
+            val tokens = rawLine.split(TOKEN_SPLIT).filter { it.isNotBlank() }
+            if (tokens.isEmpty()) return@forEachIndexed
+            val bad = mutableListOf<String>()
+            for (token in tokens) {
+                val id = parsePlaylistId(token)
+                when {
+                    id == null -> bad += token
+                    seen.add(id) -> links += ParsedLink(id, token, line = i + 1)
+                    // repeat of an earlier link — dropped, not flagged
+                }
+            }
+            if (bad.isNotEmpty()) {
+                invalid += InvalidLine(line = i + 1, text = bad.joinToString(" "))
+            }
+        }
+        return ParsedLinks(links, invalid)
+    }
+
     /** Fetches + parses the playlist's embed page. */
     public suspend fun import(urlOrId: String): ImportedPlaylist =
         withContext(Dispatchers.IO) {
@@ -152,6 +206,9 @@ public class SpotifyPlaylistImporter(
         private const val USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        /** Multi-link field separator — links contain no whitespace/commas. */
+        private val TOKEN_SPLIT = Regex("[\\s,]+")
 
         // 22-char base62 id (Spotify ids are alnum, usually exactly 22).
         private val PLAYLIST_ID = Regex("^[A-Za-z0-9]{22}$")
