@@ -3,6 +3,7 @@ package com.pianostream.core.data.playback
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.PlayHistoryItem
 import com.pianostream.core.data.playback.model.Playlist
+import com.pianostream.core.data.playback.model.PlaylistMergeResult
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import kotlinx.coroutines.flow.Flow
@@ -93,6 +94,14 @@ public interface PlaybackRepository {
      * renumbers `position` in one transaction (v3).
      */
     public suspend fun movePlaylistItem(playlistId: Long, fromPosition: Int, toPosition: Int) {}
+
+    /**
+     * Appends every track of [sourceId] to the end of [targetId], preserving
+     * order; source rows whose mediaId already exists in target are skipped.
+     * The source playlist is left untouched (deletion stays a separate call).
+     */
+    public suspend fun mergePlaylist(sourceId: Long, targetId: Long): PlaylistMergeResult =
+        PlaylistMergeResult(added = 0, skipped = 0)
 
     /**
      * Ids of every playlist containing [mediaId] — feeds the add-to-playlist

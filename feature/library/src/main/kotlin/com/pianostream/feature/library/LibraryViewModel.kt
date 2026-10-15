@@ -81,6 +81,17 @@ class LibraryViewModel @Inject constructor(
         val downloads: List<DownloadItem> = emptyList(),
         val discsSort: LibraryPrefsStore.DiscsSort = LibraryPrefsStore.DiscsSort.RECENT,
         val discsView: LibraryPrefsStore.DiscsView = LibraryPrefsStore.DiscsView.LIST,
+        /** Result line of the last "Merge into…" — sits above the list. */
+        val mergeNotice: MergeNotice? = null,
+    )
+
+    /** "Merged 'A' into 'B'" outcome + the source id for the delete follow-up. */
+    data class MergeNotice(
+        val sourceId: Long,
+        val sourceName: String,
+        val targetName: String,
+        val added: Int,
+        val skipped: Int,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -325,6 +336,42 @@ class LibraryViewModel @Inject constructor(
     /** Removes [mediaId] from [playlistId] (add-to-playlist "Saved in" tap). */
     fun removeFromPlaylist(playlistId: Long, mediaId: String) {
         viewModelScope.launch { playbackRepository.removeFromPlaylist(playlistId, mediaId) }
+    }
+
+    /**
+     * "Merge into…" on a playlist row — appends the source's tracks to the
+     * target's tail (mediaId dupes skipped, order preserved); the source
+     * playlist stays — deleting it is the notice's separate follow-up.
+     */
+    fun mergePlaylists(sourceId: Long, targetId: Long) {
+        val s = _state.value
+        val source = s.playlists.firstOrNull { it.id == sourceId } ?: return
+        val target = s.playlists.firstOrNull { it.id == targetId } ?: return
+        viewModelScope.launch {
+            val result = playbackRepository.mergePlaylist(sourceId, targetId)
+            _state.update {
+                it.copy(
+                    mergeNotice = MergeNotice(
+                        sourceId = sourceId,
+                        sourceName = source.name,
+                        targetName = target.name,
+                        added = result.added,
+                        skipped = result.skipped,
+                    ),
+                )
+            }
+        }
+    }
+
+    /** "Also delete 'A'?" on the merge notice — removes the merge's source. */
+    fun deleteMergeSource() {
+        val sourceId = _state.value.mergeNotice?.sourceId ?: return
+        _state.update { it.copy(mergeNotice = null) }
+        viewModelScope.launch { playbackRepository.deletePlaylist(sourceId) }
+    }
+
+    fun dismissMergeNotice() {
+        _state.update { it.copy(mergeNotice = null) }
     }
 
     /** Live membership for the add-to-playlist sheet's "Saved in" section. */

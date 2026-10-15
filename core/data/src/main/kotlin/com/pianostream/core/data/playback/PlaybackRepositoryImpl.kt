@@ -12,6 +12,7 @@ import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.MediaSource
 import com.pianostream.core.data.playback.model.PlayHistoryItem
 import com.pianostream.core.data.playback.model.Playlist
+import com.pianostream.core.data.playback.model.PlaylistMergeResult
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import javax.inject.Inject
@@ -208,6 +209,19 @@ class PlaybackRepositoryImpl @Inject constructor(
     override suspend fun movePlaylistItem(playlistId: Long, fromPosition: Int, toPosition: Int) {
         playlistItemDao.move(playlistId, fromPosition, toPosition)
         refreshCover(playlistId)
+    }
+
+    override suspend fun mergePlaylist(sourceId: Long, targetId: Long): PlaylistMergeResult {
+        if (sourceId == targetId) return PlaylistMergeResult(added = 0, skipped = 0)
+        val plan = PlaylistMerge.plan(
+            targetPlaylistId = targetId,
+            target = playlistItemDao.snapshot(targetId),
+            source = playlistItemDao.snapshot(sourceId),
+        )
+        val addedAt = nowMs()
+        plan.inserts.forEach { playlistItemDao.upsert(it.copy(addedAt = addedAt)) }
+        if (plan.inserts.isNotEmpty()) refreshCover(targetId)
+        return PlaylistMergeResult(added = plan.inserts.size, skipped = plan.skipped)
     }
 
     override fun observePlaylistsContaining(mediaId: String): Flow<List<Long>> =

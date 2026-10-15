@@ -4,6 +4,7 @@ import com.pianostream.core.data.playback.PlaybackRepository
 import com.pianostream.core.data.playback.model.FavoriteItem
 import com.pianostream.core.data.playback.model.PlayHistoryItem
 import com.pianostream.core.data.playback.model.Playlist
+import com.pianostream.core.data.playback.model.PlaylistMergeResult
 import com.pianostream.core.data.playback.model.QueueItem
 import com.pianostream.core.data.playback.model.QueueState
 import javax.inject.Inject
@@ -125,6 +126,27 @@ public class FakePlaybackRepository @Inject constructor() : PlaybackRepository {
         playlists.value = playlists.value.map {
             if (it.id == playlistId) it.copy(trackCount = tracks.size) else it
         }
+    }
+
+    override suspend fun mergePlaylist(sourceId: Long, targetId: Long): PlaylistMergeResult {
+        if (sourceId == targetId) return PlaylistMergeResult(added = 0, skipped = 0)
+        val source = playlistTracks.value[sourceId].orEmpty()
+        val target = playlistTracks.value[targetId].orEmpty()
+        val existing = target.mapTo(HashSet()) { it.mediaId }
+        val merged = target.toMutableList()
+        var skipped = 0
+        for (item in source) {
+            if (existing.add(item.mediaId)) {
+                merged += item.copy(position = merged.size)
+            } else {
+                skipped++
+            }
+        }
+        playlistTracks.value = playlistTracks.value + (targetId to merged)
+        playlists.value = playlists.value.map {
+            if (it.id == targetId) it.copy(trackCount = merged.size) else it
+        }
+        return PlaylistMergeResult(added = merged.size - target.size, skipped = skipped)
     }
 
     override suspend fun clearStreamCache() {

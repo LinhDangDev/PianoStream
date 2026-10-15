@@ -309,6 +309,9 @@ fun LibraryScreen(
                     onDelete = viewModel::deleteSelectedPlaylist,
                     onRemoveTrack = viewModel::removeFromSelectedPlaylist,
                     onMoveItem = viewModel::moveSelectedPlaylistItem,
+                    onMerge = viewModel::mergePlaylists,
+                    onDeleteMergeSource = viewModel::deleteMergeSource,
+                    onDismissMergeNotice = viewModel::dismissMergeNotice,
                     onPlayQueue = onPlayQueue,
                 )
                 4 -> FavoritesTab(
@@ -792,12 +795,18 @@ private fun PlaylistsTab(
     onDelete: () -> Unit,
     onRemoveTrack: (String) -> Unit,
     onMoveItem: (Int, Int) -> Unit,
+    /** "Merge into…" — (sourceId, targetId). */
+    onMerge: (Long, Long) -> Unit,
+    onDeleteMergeSource: () -> Unit,
+    onDismissMergeNotice: () -> Unit,
     onPlayQueue: (List<QueueItem>, Int) -> Unit,
 ) {
     val selectedId = state.selectedPlaylistId
     if (selectedId == null) {
         var createOpen by remember { mutableStateOf(false) }
         var importOpen by remember { mutableStateOf(false) }
+        /** Playlist whose tracks the merge picker offers targets for. */
+        var mergeSource by remember { mutableStateOf<Playlist?>(null) }
         val query = state.libraryQuery
         val visible = remember(state.playlists, query) {
             state.playlists.filter { it.matchesLibraryQuery(query) }
@@ -839,6 +848,13 @@ private fun PlaylistsTab(
                     color = Vinyl.Gold,
                 )
             }
+            state.mergeNotice?.let { notice ->
+                MergeNoticeRow(
+                    notice = notice,
+                    onDeleteSource = onDeleteMergeSource,
+                    onDismiss = onDismissMergeNotice,
+                )
+            }
             if (state.playlists.isEmpty()) {
                 EmptyState(
                     "No playlists",
@@ -849,12 +865,44 @@ private fun PlaylistsTab(
             } else {
                 LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
                     items(visible, key = { it.id }) { p ->
+                        var rowMenuOpen by remember { mutableStateOf(false) }
                         TrackRow(
                             title = p.name,
                             subtitle = "${p.trackCount} tracks",
                             artworkUri = p.coverUris.firstOrNull(),
                             durationMs = null,
                             onClick = { onSelect(p.id) },
+                            trailing = {
+                                Box {
+                                    IconButton(onClick = { rowMenuOpen = true }) {
+                                        Icon(
+                                            Icons.Filled.MoreVert,
+                                            contentDescription =
+                                                "Actions for ${p.name}",
+                                            tint = Aurora.TextSecondary,
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = rowMenuOpen,
+                                        onDismissRequest = { rowMenuOpen = false },
+                                        containerColor = Vinyl.BgTop,
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    "Merge into…",
+                                                    color = Vinyl.Gold,
+                                                )
+                                            },
+                                            onClick = {
+                                                rowMenuOpen = false
+                                                mergeSource = p
+                                            },
+                                            enabled = state.playlists.size > 1,
+                                        )
+                                    }
+                                }
+                            },
                         )
                     }
                 }
@@ -872,6 +920,17 @@ private fun PlaylistsTab(
             SpotifyImportSheet(
                 onOpenPlaylist = { onSelect(it) },
                 onDismiss = { importOpen = false },
+            )
+        }
+        mergeSource?.let { source ->
+            MergePlaylistSheet(
+                source = source,
+                targets = state.playlists.filter { it.id != source.id },
+                onPick = { target ->
+                    onMerge(source.id, target.id)
+                    mergeSource = null
+                },
+                onDismiss = { mergeSource = null },
             )
         }
         return
@@ -935,6 +994,163 @@ internal fun PlaylistNameDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
+}
+
+/**
+ * Merge result line under the playlist list — "Merged 'A' into 'B' —
+ * added N · skipped M duplicates", plus the "Also delete 'A'?" follow-up
+ * (source is never deleted by the merge itself).
+ */
+@Composable
+private fun MergeNoticeRow(
+    notice: LibraryViewModel.MergeNotice,
+    onDeleteSource: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+    ) {
+        Text(
+            "Merged '${notice.sourceName}' into '${notice.targetName}' — " +
+                "added ${notice.added} · skipped ${notice.skipped} " +
+                ("duplicate" + if (notice.skipped == 1) "" else "s"),
+            style = MaterialTheme.typography.bodySmall,
+            color = Aurora.TextSecondary,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(
+            onClick = { confirmDelete = true },
+            colors = ButtonDefaults.textButtonColors(contentColor = Aurora.Error),
+        ) { Text("Delete '${notice.sourceName}'") }
+        IconButton(onClick = onDismiss) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "Dismiss merge result",
+                tint = Aurora.TextSecondary,
+            )
+        }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            containerColor = Vinyl.BgTop,
+            title = { Text("Delete '${notice.sourceName}'?") },
+            text = {
+                Text(
+                    "Its tracks were merged — the playlist itself is removed. " +
+                        "This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { confirmDelete = false; onDeleteSource() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Aurora.Error),
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("Keep") }
+            },
+        )
+    }
+}
+
+/**
+ * "Merge into…" target picker — same conventions as [AddToPlaylistSheet]:
+ * a "Find playlist" filter over TrackRows of every OTHER playlist.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MergePlaylistSheet(
+    source: Playlist,
+    targets: List<Playlist>,
+    onPick: (Playlist) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var findQuery by remember { mutableStateOf("") }
+    val visible = targets.filter { it.name.contains(findQuery, ignoreCase = true) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Vinyl.BgTop,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp),
+        ) {
+            Text(
+                "Merge '${source.name}' into…",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Aurora.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            OutlinedTextField(
+                value = findQuery,
+                onValueChange = { findQuery = it },
+                singleLine = true,
+                placeholder = { Text("Find playlist", color = Aurora.TextSecondary) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = Aurora.TextSecondary,
+                    )
+                },
+                trailingIcon = {
+                    if (findQuery.isNotEmpty()) {
+                        IconButton(onClick = { findQuery = "" }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "Clear search",
+                                tint = Aurora.TextSecondary,
+                            )
+                        }
+                    }
+                },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Aurora.TextPrimary,
+                    unfocusedTextColor = Aurora.TextPrimary,
+                    cursorColor = Vinyl.Gold,
+                    focusedBorderColor = Vinyl.Gold,
+                    unfocusedBorderColor = Aurora.Hairline,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            visible.forEach { p ->
+                TrackRow(
+                    title = p.name,
+                    subtitle = "${p.trackCount} tracks",
+                    artworkUri = p.coverUris.firstOrNull(),
+                    durationMs = null,
+                    onClick = { onPick(p) },
+                )
+            }
+            if (targets.isEmpty()) {
+                Text(
+                    "No other playlists to merge into.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Aurora.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            } else if (findQuery.isNotBlank() && visible.isEmpty()) {
+                Text(
+                    "No playlists match \"$findQuery\".",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Aurora.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
 }
 
 /**
