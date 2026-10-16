@@ -98,3 +98,42 @@ class SpotifyImportLinksTest {
         assertThat(parsed.invalid).isEmpty()
     }
 }
+
+class SpotifyImportLinkFormsTest {
+
+    private val importer = SpotifyPlaylistImporter(OkHttpClient())
+
+    private val idA = "37i9dQZF1DXcBWIGoYBM5M"
+
+    @Test
+    fun `album track and short links parse to their kinds`() {
+        val parsed = importer.parseImportLinks(
+            "https://open.spotify.com/album/4LH4d3cOWNNsVw41Gqt2kv\n" +
+                "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=abc\n" +
+                "https://spotify.link/AbC12DeF\n" +
+                "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+        )
+        assertThat(parsed.invalid).isEmpty()
+        // the uri-form track dedupes with the url-form track above it
+        assertThat(parsed.links.map { it.kind }).containsExactly(
+            SpotifyPlaylistImporter.EntityKind.ALBUM,
+            SpotifyPlaylistImporter.EntityKind.TRACK,
+            SpotifyPlaylistImporter.EntityKind.SHORT,
+        ).inOrder()
+        assertThat(parsed.links[0].id).isEqualTo("4LH4d3cOWNNsVw41Gqt2kv")
+        assertThat(parsed.links[1].id).isEqualTo("4uLU6hMCjMI75M1A2tKUQC")
+        assertThat(parsed.links[2].id).contains("spotify.link/")
+    }
+
+    @Test
+    fun `intl album url and same entity via two shapes dedupe`() {
+        val parsed = importer.parseImportLinks(
+            "https://open.spotify.com/intl-vn/album/4LH4d3cOWNNsVw41Gqt2kv\n" +
+                "spotify:album:4LH4d3cOWNNsVw41Gqt2kv\n" +
+                "https://open.spotify.com/playlist/$idA",
+        )
+        // album id dedupes across url/uri shapes; playlist still counts
+        assertThat(parsed.links).hasSize(2)
+        assertThat(parsed.invalid).isEmpty()
+    }
+}

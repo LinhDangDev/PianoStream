@@ -79,26 +79,67 @@ public class SpotifyPlaylistImporter(
         }
     }
 
+    /** What a pasted Spotify link points at. */
+    public enum class EntityKind {
+        PLAYLIST,
+        ALBUM,
+        TRACK,
+        /** `spotify.link/<code>` mobile share link — resolves at import time. */
+        SHORT,
+    }
+
+    /** A parsed Spotify entity link (id + what it points at). */
+    public data class ParsedTarget(
+        val id: String,
+        val kind: EntityKind,
+    )
+
     /** The playlist id inside a pasted link/uri, or null when it isn't one. */
-    public fun parsePlaylistId(input: String): String? {
+    public fun parsePlaylistId(input: String): String? =
+        parseSpotifyTarget(input)
+            ?.takeIf { it.kind == EntityKind.PLAYLIST }
+            ?.id
+
+    /**
+     * Any Spotify entity link/uri/id: `open.spotify.com/[intl-xx/](playlist|
+     * album|track)/<id>[?si=…]`, `spotify:(playlist|album|track):<id>`, a bare
+     * 22-char id (treated as a playlist), or a `spotify.link/<code>` share
+     * link ([EntityKind.SHORT] — the id field then holds the link itself).
+     */
+    public fun parseSpotifyTarget(input: String): ParsedTarget? {
         val q = input.trim()
         if (q.isEmpty()) return null
-        if (PLAYLIST_ID.matches(q)) return q // bare id
-        URI_PATTERN.find(q)?.let { return it.groupValues[1] }
+        if (SHORT_LINK.matches(q) || SHORT_LINK.find(q)?.let { it.range.first == 0 } == true) {
+            return ParsedTarget(q, EntityKind.SHORT)
+        }
+        if (PLAYLIST_ID.matches(q)) return ParsedTarget(q, EntityKind.PLAYLIST)
+        URI_PATTERN.find(q)?.let {
+            return ParsedTarget(it.groupValues[2], kindOf(it.groupValues[1]))
+        }
         if (q.contains("spotify.com") || q.contains("spotify:")) {
-            URL_PATTERN.find(q)?.let { return it.groupValues[1] }
+            URL_PATTERN.find(q)?.let {
+                return ParsedTarget(it.groupValues[2], kindOf(it.groupValues[1]))
+            }
         }
         return null
     }
 
-    /** One valid playlist link pulled from the multi-link paste field. */
+    private fun kindOf(word: String): EntityKind = when (word.lowercase()) {
+        "album" -> EntityKind.ALBUM
+        "track" -> EntityKind.TRACK
+        else -> EntityKind.PLAYLIST
+    }
+
+    /** One valid link pulled from the multi-link paste field. */
     public data class ParsedLink(
-        /** Playlist id — feeds [import] directly. */
+        /** Entity id — feeds [import]; for [EntityKind.SHORT] this is the link. */
         val id: String,
         /** The token as pasted (for the per-link status list). */
         val raw: String,
         /** 1-based line it came from. */
         val line: Int,
+        /** What the link points at. */
+        val kind: EntityKind = EntityKind.PLAYLIST,
     )
 
     /** A line (or tokens of it) no playlist link could be parsed from. */
@@ -131,10 +172,14 @@ public class SpotifyPlaylistImporter(
             if (tokens.isEmpty()) return@forEachIndexed
             val bad = mutableListOf<String>()
             for (token in tokens) {
-                val id = parsePlaylistId(token)
+                val target = parseSpotifyTarget(token)
                 when {
-                    id == null -> bad += token
-                    seen.add(id) -> links += ParsedLink(id, token, line = i + 1)
+                    target == null -> bad += token
+                    // dedupe on entity kind+id; short links dedupe on the token
+                    seen.add(
+                        if (target.kind == EntityKind.SHORT) "short:$token"
+                        else "${target.kind}:${target.id}",
+                    ) -> links += ParsedLink(target.id, token, line = i + 1, target.kind)
                     // repeat of an earlier link — dropped, not flagged
                 }
             }
@@ -145,22 +190,93 @@ public class SpotifyPlaylistImporter(
         return ParsedLinks(links, invalid)
     }
 
-    /** Fetches + parses the playlist's embed page. */
+    /** Fetches + parses an entity's embed page (playlist/album/track id or
+     *  any supported link form, including `spotify.link` share links). */
     public suspend fun import(urlOrId: String): ImportedPlaylist =
         withContext(Dispatchers.IO) {
-            val id = parsePlaylistId(urlOrId)
+            var target = parseSpotifyTarget(urlOrId)
                 ?: throw SpotifyImportException(
                     SpotifyImportException.Kind.INVALID_URL,
-                    "not a Spotify playlist link",
+                    "not a Spotify link",
                 )
-            val html = get("$embedBase/embed/playlist/$id")
-            val parsed = SpotifyEmbedParser.parse(html)
+            if (target.kind == EntityKind.SHORT) {
+                target = parseSpotifyTarget(resolveShortLink(target.id))
+                    ?: throw SpotifyImportException(
+                        SpotifyImportException.Kind.INVALID_URL,
+                        "spotify.link didn't point at a playlist/album/track",
+                    )
+            }
+            val path = when (target.kind) {
+                EntityKind.ALBUM -> "album"
+                EntityKind.TRACK -> "track"
+                else -> "playlist"
+            }
+            val html = get("$embedBase/embed/$path/${target.id}")
+            val parsed = SpotifyEmbedParser.parse(html, target.kind)
                 ?: throw SpotifyImportException(
                     SpotifyImportException.Kind.PARSE,
                     "no track list found in embed page",
                 )
-            parsed.copy(id = id)
+            parsed.copy(id = target.id)
         }
+
+    /** Same as [import] but takes a [ParsedLink] from [parseImportLinks]. */
+    public suspend fun import(link: ParsedLink): ImportedPlaylist =
+        if (link.kind == EntityKind.SHORT) import(link.id) else
+            withContext(Dispatchers.IO) {
+                val path = when (link.kind) {
+                    EntityKind.ALBUM -> "album"
+                    EntityKind.TRACK -> "track"
+                    else -> "playlist"
+                }
+                val html = get("$embedBase/embed/$path/${link.id}")
+                val parsed = SpotifyEmbedParser.parse(html, link.kind)
+                    ?: throw SpotifyImportException(
+                        SpotifyImportException.Kind.PARSE,
+                        "no track list found in embed page",
+                    )
+                parsed.copy(id = link.id)
+            }
+
+    /**
+     * `spotify.link/<code>` is a Branch.io smart link: a server-side 307 sends
+     * mobile user agents to the destination (open.spotify.com/… for a real
+     * link, an app-store deepview for a dead one). Fetch with a mobile UA and
+     * redirects off → take the Location; when the body is an interstitial
+     * instead, scan it for an open.spotify.com entity URL too.
+     */
+    private fun resolveShortLink(url: String): String {
+        val full = if (url.startsWith("http")) url else "https://$url"
+        val request = Request.Builder()
+            .url(full)
+            .header("User-Agent", MOBILE_USER_AGENT)
+            .get()
+            .build()
+        val client = okHttp.newBuilder().followRedirects(false).build()
+        try {
+            client.newCall(request).execute().use { resp ->
+                val location = resp.header("Location")
+                if (location != null && URL_PATTERN.containsMatchIn(location)) {
+                    return location
+                }
+                resp.body?.string()?.let { body ->
+                    URL_PATTERN.find(body)?.let { return it.value }
+                }
+                throw SpotifyImportException(
+                    SpotifyImportException.Kind.INVALID_URL,
+                    "spotify.link resolved nowhere usable (HTTP ${resp.code})",
+                )
+            }
+        } catch (e: SpotifyImportException) {
+            throw e
+        } catch (e: IOException) {
+            throw SpotifyImportException(
+                SpotifyImportException.Kind.NETWORK,
+                "spotify.link resolution failed",
+                e,
+            )
+        }
+    }
 
     private fun get(url: String): String {
         val request = Request.Builder()
@@ -210,12 +326,25 @@ public class SpotifyPlaylistImporter(
         /** Multi-link field separator — links contain no whitespace/commas. */
         private val TOKEN_SPLIT = Regex("[\\s,]+")
 
+        private const val MOBILE_USER_AGENT =
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) " +
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 " +
+                "Mobile/15E148 Safari/604.1"
+
         // 22-char base62 id (Spotify ids are alnum, usually exactly 22).
         private val PLAYLIST_ID = Regex("^[A-Za-z0-9]{22}$")
-        private val URI_PATTERN = Regex("spotify:playlist:([A-Za-z0-9]+)")
-        // open.spotify.com[/intl-xx[/...]]/playlist/<id>[?si=...]
+        private val URI_PATTERN = Regex(
+            "spotify:(playlist|album|track):([A-Za-z0-9]+)",
+            RegexOption.IGNORE_CASE,
+        )
+        // open.spotify.com[/intl-xx[/...]]/(playlist|album|track)/<id>[?si=...]
         private val URL_PATTERN = Regex(
-            "open\\.spotify\\.com/(?:intl-[a-zA-Z-]+/)*playlist/([A-Za-z0-9]+)",
+            "open\\.spotify\\.com/(?:intl-[a-zA-Z-]+/)*(playlist|album|track)/([A-Za-z0-9]+)",
+        )
+        // spotify.link/<code> — mobile share short link (Branch.io).
+        private val SHORT_LINK = Regex(
+            "(?:https?://)?spotify\\.link/[A-Za-z0-9]+/?",
+            RegexOption.IGNORE_CASE,
         )
 
         public fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
@@ -239,15 +368,44 @@ internal object SpotifyEmbedParser {
         RegexOption.DOT_MATCHES_ALL,
     )
 
-    fun parse(html: String): SpotifyPlaylistImporter.ImportedPlaylist? {
+    fun parse(
+        html: String,
+        kind: SpotifyPlaylistImporter.EntityKind =
+            SpotifyPlaylistImporter.EntityKind.PLAYLIST,
+    ): SpotifyPlaylistImporter.ImportedPlaylist? {
         val blob = NEXT_DATA.find(html)?.groupValues?.get(1)?.trim()
             ?: return null
         val root = runCatching {
             json.parseToJsonElement(blob) as? JsonObject
         }.getOrNull() ?: return null
 
-        val entity = findEntity(root) ?: return null
+        val entity = findEntity(root, kind) ?: return null
         val name = entity.str("name") ?: entity.str("title") ?: return null
+        val cover = firstImage(entity.obj("coverArt")?.arr("sources"))
+            ?: entity.obj("visualIdentity")?.arr("image")
+                ?.let { firstImage(it) }
+        if (kind == SpotifyPlaylistImporter.EntityKind.TRACK) {
+            val artists = entity.arr("artists")
+                ?.mapNotNull { (it as? JsonObject)?.str("name") }
+                ?.joinToString(", ")?.takeIf { it.isNotBlank() }
+                ?: entity.str("subtitle")?.let(::clean)?.takeIf { it.isNotBlank() }
+            return SpotifyPlaylistImporter.ImportedPlaylist(
+                id = "",
+                name = clean(name),
+                owner = artists,
+                coverUrl = cover,
+                tracks = listOf(
+                    SpotifyPlaylistImporter.ImportedTrack(
+                        title = clean(name),
+                        artist = artists,
+                        durationMs = entity.long("duration")
+                            ?: entity.long("duration_ms"),
+                        artworkUrl = cover,
+                    ),
+                ),
+                totalCount = 1,
+            )
+        }
         val tracks = parseTrackList(entity)
             ?: parseLegacyTracks(entity)
             ?: return null
@@ -255,23 +413,29 @@ internal object SpotifyEmbedParser {
             id = "",
             name = clean(name),
             owner = entity.str("subtitle")?.let(::clean)?.takeIf { it.isNotBlank() },
-            coverUrl = firstImage(entity.obj("coverArt")?.arr("sources"))
-                ?: entity.obj("visualIdentity")?.arr("image")
-                    ?.let { firstImage(it) },
+            coverUrl = cover,
             tracks = tracks.take(SpotifyPlaylistImporter.MAX_TRACKS),
             totalCount = tracks.size,
         )
     }
 
     /** `props.pageProps.state.data.entity`, else a deep-walk for the same
-     * shape (a `trackList` array, or `type == "playlist"`). */
-    private fun findEntity(root: JsonObject): JsonObject? {
+     * shape (a `trackList` array, or `type`/`entityType` matching the kind). */
+    private fun findEntity(
+        root: JsonObject,
+        kind: SpotifyPlaylistImporter.EntityKind,
+    ): JsonObject? {
         root.obj("props")?.obj("pageProps")?.obj("state")?.obj("data")
             ?.obj("entity")?.let { return it }
+        val typeWord = when (kind) {
+            SpotifyPlaylistImporter.EntityKind.ALBUM -> "album"
+            SpotifyPlaylistImporter.EntityKind.TRACK -> "track"
+            else -> "playlist"
+        }
         return deepFind(root) { o ->
             o["trackList"] != null ||
-                o.str("type") == "playlist" ||
-                o.str("entityType") == "playlist"
+                o.str("type") == typeWord ||
+                o.str("entityType") == typeWord
         }
     }
 

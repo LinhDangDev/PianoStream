@@ -194,15 +194,30 @@ class SpotifyPlaylistImporterTest {
     }
 
     @Test
-    fun `import rejects a non-playlist link without any request`() = runTest {
+    fun `import rejects a non-spotify link without any request`() = runTest {
         val base = server.url("/").toString().trimEnd('/')
         try {
-            importer(base).import("https://open.spotify.com/track/3zOYmiNOuyDL0ClxJcEJ0T")
+            importer(base).import("https://example.com/playlist/3zOYmiNOuyDL0ClxJcEJ0T")
             error("expected throw")
         } catch (e: SpotifyPlaylistImporter.SpotifyImportException) {
             assertThat(e.kind)
                 .isEqualTo(SpotifyPlaylistImporter.SpotifyImportException.Kind.INVALID_URL)
         }
         assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `import fetches the track embed for a track link`() = runTest {
+        server.enqueue(
+            okhttp3.mockwebserver.MockResponse().setBody(
+                """<script id="__NEXT_DATA__">{"props":{"pageProps":{"state":{"data":{"entity":{"type":"track","title":"Song","duration":1000,"artists":[{"name":"A"}]}}}}}}</script>""",
+            ),
+        )
+        val base = server.url("/").toString().trimEnd('/')
+        val playlist = importer(base)
+            .import("https://open.spotify.com/track/3zOYmiNOuyDL0ClxJcEJ0T")
+        assertThat(server.takeRequest().path).isEqualTo("/embed/track/3zOYmiNOuyDL0ClxJcEJ0T")
+        assertThat(playlist.tracks).hasSize(1)
+        assertThat(playlist.tracks.single().title).isEqualTo("Song")
     }
 }

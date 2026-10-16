@@ -179,7 +179,7 @@ private fun PasteStep(
         maxLines = 6,
         placeholder = {
             Text(
-                "open.spotify.com/playlist/…\nOne link per line",
+                "open.spotify.com/playlist·album·track/… or spotify.link\nOne link per line",
                 color = Aurora.TextSecondary,
             )
         },
@@ -203,7 +203,7 @@ private fun PasteStep(
         modifier = Modifier.fillMaxWidth(),
     )
     Text(
-        "Public playlists only · up to ${SpotifyPlaylistImporter.MAX_TRACKS} tracks each",
+        "Public items only · up to ${SpotifyPlaylistImporter.MAX_TRACKS} tracks each",
         style = MaterialTheme.typography.bodySmall,
         color = Aurora.TextSecondary,
         modifier = Modifier.padding(top = 8.dp),

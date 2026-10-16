@@ -192,7 +192,7 @@ class SpotifyImportViewModel @Inject constructor(
 
         _state.update { it.copy(phase = Phase.Fetching(index, count)) }
         val playlist = try {
-            importer.import(link.id)
+            importer.import(link)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SpotifyPlaylistImporter.SpotifyImportException) {
@@ -250,18 +250,11 @@ class SpotifyImportViewModel @Inject constructor(
             return fail("Import failed while matching tracks.", playlist.name)
         }
 
-        val name = uniqueName(playlist.name.ifBlank { "Spotify import" }, takenNames)
-        val playlistId = runCatching { playbackRepository.createPlaylist(name) }
-            .getOrDefault(-1L)
-        if (playlistId < 0) {
-            return fail("Couldn't create the playlist.", name)
-        }
-
-        // Dense positions for the matched rows; failures are omitted from the
-        // playlist entirely (they're still listed in the sheet's results).
-        var position = 0
+        // Matched rows first — no playlist is created when nothing matched,
+        // so a dead run can't leave a 0-track playlist behind.
         val now = System.currentTimeMillis()
         val unmatched = mutableListOf<String>()
+        val matched = mutableListOf<QueueItem>()
         matchResults.forEachIndexed { i, match ->
             val item = (match as? SpotifyImportRunner.Match.Matched)?.item
             val track = playlist.tracks[i]
@@ -272,22 +265,35 @@ class SpotifyImportViewModel @Inject constructor(
                     .ifBlank { track.title }
                 return@forEachIndexed
             }
-            runCatching {
-                playbackRepository.addToPlaylist(
-                    playlistId,
-                    queueItemFor(position, track, item, now),
-                )
+            matched += queueItemFor(matched.size, track, item, now)
+        }
+        if (matched.isEmpty()) {
+            return fail("No playable YouTube matches for this playlist.", playlist.name)
+        }
+
+        val name = uniqueName(playlist.name.ifBlank { "Spotify import" }, takenNames)
+        val playlistId = runCatching { playbackRepository.createPlaylist(name) }
+            .getOrDefault(-1L)
+        if (playlistId < 0) {
+            return fail("Couldn't create the playlist.", name)
+        }
+        var added = 0
+        matched.forEach { item ->
+            if (runCatching {
+                playbackRepository.addToPlaylist(playlistId, item)
+            }.isSuccess
+            ) {
+                added++
             }
-            position++
         }
 
         val missed = matchResults.count { it !is SpotifyImportRunner.Match.Matched }
-        setLink(index, LinkProgress.Status.DONE, "“$name” · $position tracks")
+        setLink(index, LinkProgress.Status.DONE, "“$name” · $added tracks")
         return LinkResult(
             raw = link.raw,
             playlistId = playlistId,
             playlistName = name,
-            imported = position,
+            imported = added,
             missed = missed,
             unmatched = unmatched,
         )
