@@ -143,6 +143,15 @@ class SpotifyImportViewModel @Inject constructor(
         _state.update { it.copy(phase = Phase.Idle, links = emptyList()) }
     }
 
+    /** Fully fresh state — the sheet calls this when it reopens after a
+     *  finished/errored run so the user gets a new import, not the old
+     *  summary (which also auto-opened the previous playlist). */
+    fun reset() {
+        importJob?.cancel()
+        importJob = null
+        _state.value = UiState()
+    }
+
     private suspend fun runImport(links: List<SpotifyPlaylistImporter.ParsedLink>) {
         // F12 — zero YouTube egress while local-only is on.
         if (runCatching { settings.localOnlySearch.first() }.getOrDefault(false)) {

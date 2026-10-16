@@ -80,6 +80,19 @@ fun SpotifyImportSheet(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
+    // Reopening the sheet after a finished/errored run must show a fresh
+    // paste field, not the previous run's summary (which would also
+    // re-navigate to the old playlist below). Declared before the Done
+    // effect so the reset lands first.
+    LaunchedEffect(Unit) {
+        val phase = viewModel.state.value.phase
+        if (phase is SpotifyImportViewModel.Phase.Done ||
+            phase is SpotifyImportViewModel.Phase.Error
+        ) {
+            viewModel.reset()
+        }
+    }
+
     // A single successful import selects its playlist, so dismissing the
     // sheet leaves the user looking at it; a multi-import lands back on the
     // playlists list where every new playlist is visible.
